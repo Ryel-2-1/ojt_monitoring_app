@@ -1,8 +1,6 @@
 plugins {
-    // This allows the app to find the Google Services plugin
     id("com.google.gms.google-services") version "4.4.1" apply false
-    // Add the Flutter Android plugin if not already there
-    id("com.android.application") version "8.1.0" apply false 
+    id("com.android.application") version "8.11.1" apply false
 }
 
 

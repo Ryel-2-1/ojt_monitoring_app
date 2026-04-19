@@ -1,143 +1,228 @@
-import 'package:firebase_core/firebase_core.dart';
-import 'package:flutter/material.dart';
+// lib/main.dart
+//
+// PURPOSE: App entry point. Handles:
+//   1. Manual Firebase initialization (bypassing flutterfire CLI).
+//   2. Wiring up services via an InheritedWidget (AppServices).
+//   3. A root widget that listens to auth state and routes accordingly.
+
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+
+import 'services/auth_service.dart';
+import 'repositories/student_repository.dart';
+import 'repositories/attendance_repository.dart';
+
+// -------------------------------------------------------------------
+// STEP 1: Firebase Manual Configuration
+// We bypass `flutterfire configure` and hardcode the Web config here.
+// Android reads from google-services.json automatically.
+// -------------------------------------------------------------------
+
+const FirebaseOptions _webFirebaseOptions = FirebaseOptions(
+  apiKey: "AIzaSyByaNJZjhXfedXhs-71GjazPYhegb36bBM",
+  authDomain: "ojt-monitoring-system-44070.firebaseapp.com",
+  projectId: "ojt-monitoring-system-44070",
+  storageBucket: "ojt-monitoring-system-44070.firebasestorage.app",
+  messagingSenderId: "910935241512",
+  appId: "1:910935241512:web:15533661247267339d561d",
+  measurementId: "G-QK59E8TEW8",
+);
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   if (kIsWeb) {
-    // PASTE YOUR KEYS FROM THE PHOTO HERE
-    await Firebase.initializeApp(
-      options: const FirebaseOptions(
-        apiKey: "AIzaSyByaNJZjhXfedXhs-71GjazPYhegb36bBM",
-        authDomain: "ojt-monitoring-system-44070.firebaseapp.com",
-        projectId: "ojt-monitoring-system-44070",
-        storageBucket: "ojt-monitoring-system-44070.firebasestorage.app",
-        messagingSenderId: "910935241512",
-        appId: "1:910935241512:web:15533661247267339d561d",
-        measurementId: "G-QK59E8TEW8",
-      ),
-    );
+    await Firebase.initializeApp(options: _webFirebaseOptions);
   } else {
-    // For Android, it still uses your google-services.json
     await Firebase.initializeApp();
   }
 
-  runApp(const MyApp());
+  runApp(const OjtApp());
 }
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+
+// -------------------------------------------------------------------
+// STEP 2: AppServices — InheritedWidget for Dependency Injection
+// -------------------------------------------------------------------
+class AppServices extends InheritedWidget {
+  final AuthService authService;
+  final StudentRepository studentRepository;
+  final AttendanceRepository attendanceRepository;
+
+  const AppServices({
+    super.key,
+    required this.authService,
+    required this.studentRepository,
+    required this.attendanceRepository,
+    required super.child,
+  });
+
+  static AppServices of(BuildContext context) {
+    final result = context.dependOnInheritedWidgetOfExactType<AppServices>();
+    assert(result != null, 'No AppServices found in widget tree');
+    return result!;
+  }
+
+  @override
+  bool updateShouldNotify(AppServices oldWidget) => false;
+}
+
+// -------------------------------------------------------------------
+// STEP 3: Root App Widget
+// -------------------------------------------------------------------
+class OjtApp extends StatelessWidget {
+  const OjtApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      home: Scaffold(
-        appBar: AppBar(title: const Text("OJT Connection Test")),
-        body: Center(
-          child: ElevatedButton(
-            onPressed: () async {
-              try {
-                // This sends a "Hello" message to your database
-                await FirebaseFirestore.instance
-                    .collection('test_connection')
-                    .add({
-                  'message': 'Hello from Ryel Jan!',
-                  'timestamp': DateTime.now(),
-                });
-                print("SUCCESS: Data sent to Firestore!");
-              } catch (e) {
-                print("ERROR: Could not send data: $e");
-              }
-            },
-            child: const Text("Test Firebase Connection"),
-          ),
+    final authService = AuthService();
+    final studentRepository = StudentRepository();
+    final attendanceRepository = AttendanceRepository();
+
+    return AppServices(
+      authService: authService,
+      studentRepository: studentRepository,
+      attendanceRepository: attendanceRepository,
+      child: MaterialApp(
+        title: 'OJT Monitoring System',
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF8B0000)), // PUP Maroon
+          useMaterial3: true,
         ),
+        home: const AuthGate(),
       ),
     );
   }
 }
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
 
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
+// -------------------------------------------------------------------
+// STEP 4: AuthGate — Listens to auth state and routes the user
+// -------------------------------------------------------------------
+class AuthGate extends StatelessWidget {
+  const AuthGate({super.key});
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  Widget build(BuildContext context) {
+    final authService = AppServices.of(context).authService;
+
+    return StreamBuilder(
+      stream: authService.authStateChanges,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        if (snapshot.hasData && snapshot.data != null) {
+          return const HomeScreen(); 
+        }
+
+        return const LoginScreen(); 
+      },
+    );
+  }
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+// -------------------------------------------------------------------
+// PLACEHOLDER SCREENS
+// -------------------------------------------------------------------
 
-  void _incrementCounter() {
+class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  bool _isLoading = false;
+  String? _errorMessage;
+
+  Future<void> _handleSignIn() async {
     setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
+      _isLoading = true;
+      _errorMessage = null;
     });
+
+    try {
+      final authService = AppServices.of(context).authService;
+      final user = await authService.signInWithGoogle();
+
+      if (user == null) {
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      if (mounted) {
+        final studentRepo = AppServices.of(context).studentRepository;
+        final existingProfile = await studentRepo.getStudent(user.uid);
+
+        if (existingProfile == null) {
+          debugPrint('New user — navigate to profile setup');
+        }
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = e.toString();
+        _isLoading = false;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
     return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
+      appBar: AppBar(title: const Text('OJT Monitoring — PUP Biñan')),
       body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
         child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: .center,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
+            if (_errorMessage != null)
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(_errorMessage!,
+                    style: const TextStyle(color: Colors.red)),
+              ),
+            ElevatedButton.icon(
+              onPressed: _isLoading ? null : _handleSignIn,
+              icon: _isLoading
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.login),
+              label: const Text('Sign in with Google'),
             ),
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
+    );
+  }
+}
+
+class HomeScreen extends StatelessWidget {
+  const HomeScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final authService = AppServices.of(context).authService;
+    final user = authService.currentUser;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('OJT Dashboard'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () => authService.signOut(),
+            tooltip: 'Sign Out',
+          ),
+        ],
+      ),
+      body: Center(
+        child: Text('Welcome, ${user?.displayName ?? 'Student'}!'),
       ),
     );
   }
