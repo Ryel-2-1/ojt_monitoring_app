@@ -12,7 +12,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'services/auth_service.dart';
 import 'repositories/student_repository.dart';
 import 'repositories/attendance_repository.dart';
-
+import 'screens/login_screen.dart';
 // -------------------------------------------------------------------
 // STEP 1: Firebase Manual Configuration
 // We bypass `flutterfire configure` and hardcode the Web config here.
@@ -129,78 +129,7 @@ class AuthGate extends StatelessWidget {
 // PLACEHOLDER SCREENS
 // -------------------------------------------------------------------
 
-class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
 
-  @override
-  State<LoginScreen> createState() => _LoginScreenState();
-}
-
-class _LoginScreenState extends State<LoginScreen> {
-  bool _isLoading = false;
-  String? _errorMessage;
-
-  Future<void> _handleSignIn() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-
-    try {
-      final authService = AppServices.of(context).authService;
-      final user = await authService.signInWithGoogle();
-
-      if (user == null) {
-        setState(() => _isLoading = false);
-        return;
-      }
-
-      if (mounted) {
-        final studentRepo = AppServices.of(context).studentRepository;
-        final existingProfile = await studentRepo.getStudent(user.uid);
-
-        if (existingProfile == null) {
-          debugPrint('New user — navigate to profile setup');
-        }
-      }
-    } catch (e) {
-      setState(() {
-        _errorMessage = e.toString();
-        _isLoading = false;
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('OJT Monitoring — PUP Biñan')),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (_errorMessage != null)
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text(_errorMessage!,
-                    style: const TextStyle(color: Colors.red)),
-              ),
-            ElevatedButton.icon(
-              onPressed: _isLoading ? null : _handleSignIn,
-              icon: _isLoading
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.login),
-              label: const Text('Sign in with Google'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});

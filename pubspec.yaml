@@ -21,6 +21,7 @@ version: 1.0.0+1
 environment:
   sdk: ^3.11.3
 
+
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
 # consider running `flutter pub upgrade --major-versions`. Alternatively,
@@ -38,6 +39,7 @@ dependencies:
   firebase_auth: ^5.3.1
   google_sign_in: ^6.2.1
   cloud_firestore: ^5.4.4
+  google_fonts: ^6.2.1
 
 dev_dependencies:
   flutter_test:
