@@ -15,10 +15,13 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../main.dart'; // for AppServices
+import '../models/user_model.dart';
+import '../services/auth_service.dart';
+import 'register_screen.dart';
 
 
 // Role enum — used to track which tab is selected
-enum UserRole { intern, supervisor }
+
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -90,30 +93,40 @@ class _LoginScreenState extends State<LoginScreen>
   // --- Email/Password Sign-In Handler ---
   // Scaffolded — wire to firebase_auth when ready
   Future<void> _handleEmailSignIn() async {
-    if (!_formKey.currentState!.validate()) return;
+  if (!_formKey.currentState!.validate()) return;
+
+  setState(() {
+    _isLoading = true;
+    _errorMessage = null;
+  });
+
+  try {
+    final authService = AppServices.of(context).authService;
+
+    await authService.signInWithEmail(
+      email: _emailController.text.trim(),
+      password: _passwordController.text,
+    );
+
+    if (!mounted) return;
 
     setState(() {
-      _isLoading = true;
-      _errorMessage = null;
+      _isLoading = false;
     });
-
-    try {
-      // TODO: Call FirebaseAuth.instance.signInWithEmailAndPassword(...)
-      // For now, just simulate a delay
-      await Future.delayed(const Duration(seconds: 1));
-
-      // Placeholder — remove when real auth is wired
-      setState(() {
-        _errorMessage = 'Email/Password auth coming soon. Use Google Sign-In.';
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _errorMessage = e.toString().replaceAll('Exception: ', '');
-        _isLoading = false;
-      });
-    }
+  } on AuthException catch (e) {
+    if (!mounted) return;
+    setState(() {
+      _errorMessage = e.message;
+      _isLoading = false;
+    });
+  } catch (e) {
+    if (!mounted) return;
+    setState(() {
+      _errorMessage = e.toString().replaceAll('Exception: ', '');
+      _isLoading = false;
+    });
   }
+}
 
   @override
   Widget build(BuildContext context) {
@@ -554,8 +567,12 @@ class _LoginScreenState extends State<LoginScreen>
                   // TODO: Navigate to RegisterScreen
                   // Pass _selectedRole so the registration form knows
                   // whether it's an intern or supervisor signing up
-                  debugPrint(
-                      'Create account tapped for role: $_selectedRole');
+                  Navigator.push(
+  context,
+  MaterialPageRoute(
+    builder: (_) => const RegisterScreen(),
+  ),
+);
                 },
                 child: Text(
                   'Create Account',

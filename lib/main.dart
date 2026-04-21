@@ -8,11 +8,18 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-
+import 'package:firebase_auth/firebase_auth.dart'; // Fixes the 'User' type error
+import 'models/user_model.dart'; // Fixes the 'UserRole' enum error
 import 'services/auth_service.dart';
 import 'repositories/student_repository.dart';
 import 'repositories/attendance_repository.dart';
 import 'screens/login_screen.dart';
+import 'repositories/user_repository.dart';
+import 'screens/admin_dashboard_layout.dart';
+import 'repositories/role_repository.dart';
+import 'screens/access_control_screen.dart';
+import 'screens/web_login_screen.dart';
+
 // -------------------------------------------------------------------
 // STEP 1: Firebase Manual Configuration
 // We bypass `flutterfire configure` and hardcode the Web config here.
@@ -48,12 +55,16 @@ class AppServices extends InheritedWidget {
   final AuthService authService;
   final StudentRepository studentRepository;
   final AttendanceRepository attendanceRepository;
-
+  final UserRepository userRepository; // Add this line
+  final RoleRepository roleRepository;
+  
   const AppServices({
     super.key,
     required this.authService,
     required this.studentRepository,
     required this.attendanceRepository,
+    required this.userRepository, // Add this line
+    required this.roleRepository, // Add this line
     required super.child,
   });
 
@@ -73,16 +84,23 @@ class AppServices extends InheritedWidget {
 class OjtApp extends StatelessWidget {
   const OjtApp({super.key});
 
+
+
   @override
   Widget build(BuildContext context) {
     final authService = AuthService();
     final studentRepository = StudentRepository();
     final attendanceRepository = AttendanceRepository();
+    final userRepository = UserRepository(); // Instantiate here
+    final roleRepository = RoleRepository(); // Instantiate here
 
     return AppServices(
       authService: authService,
       studentRepository: studentRepository,
       attendanceRepository: attendanceRepository,
+     
+      userRepository: userRepository,
+      roleRepository: roleRepository,
       child: MaterialApp(
         title: 'OJT Monitoring System',
         debugShowCheckedModeBanner: false,
@@ -90,7 +108,7 @@ class OjtApp extends StatelessWidget {
           colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF8B0000)), // PUP Maroon
           useMaterial3: true,
         ),
-        home: const AuthGate(),
+       home: const AuthGate(),
       ),
     );
   }
@@ -105,54 +123,68 @@ class AuthGate extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final authService = AppServices.of(context).authService;
+    final userRepo = AppServices.of(context).userRepository;
 
-    return StreamBuilder(
+    return StreamBuilder<User?>(
       stream: authService.authStateChanges,
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
+        // 1. If NOT logged in, show the platform-specific login screen
+        if (!snapshot.hasData || snapshot.data == null) {
+          return kIsWeb ? const WebLoginScreen() : const LoginScreen();
         }
 
-        if (snapshot.hasData && snapshot.data != null) {
-          return const HomeScreen(); 
-        }
+        // 2. If logged in, we must check the Role to route correctly
+        return FutureBuilder<UserRole?>(
+          future: userRepo.getUserRole(snapshot.data!.uid), // Uses your new repo helper
+          builder: (context, roleSnapshot) {
+           if (roleSnapshot.connectionState == ConnectionState.waiting) {
+  return const Scaffold(
+    body: Center(child: CircularProgressIndicator()),
+  );
+}
 
-        return const LoginScreen(); 
+if (roleSnapshot.hasError) {
+  return Scaffold(
+    body: Center(
+      child: Text('Error: ${roleSnapshot.error}'),
+    ),
+  );
+}
+
+final role = roleSnapshot.data;
+
+if (role == null) {
+  return const Scaffold(
+    body: Center(
+      child: Text('No role found for this account'),
+    ),
+  );
+}
+
+            // 3. Routing Logic: Platform + Role Enforcement
+            if (kIsWeb && role == UserRole.supervisor) {
+              return const AdminDashboardLayout(
+                child: AccessControlScreen(),
+              );
+            } else if (!kIsWeb && role == UserRole.intern) {
+              // This is where you will build your Intern Home Screen
+              return const Scaffold(
+                body: Center(child: Text('Intern Mobile Home')),
+              );
+            }
+
+            // 4. Emergency Fallback: If role/platform don't match, send back to login
+           return Scaffold(
+  body: Center(
+    child: Text('Access denied or role mismatch'),
+  ),
+);
+          },
+        );
       },
     );
   }
 }
-
 // -------------------------------------------------------------------
 // PLACEHOLDER SCREENS
 // -------------------------------------------------------------------
-
-
-
-class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final authService = AppServices.of(context).authService;
-    final user = authService.currentUser;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('OJT Dashboard'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () => authService.signOut(),
-            tooltip: 'Sign Out',
-          ),
-        ],
-      ),
-      body: Center(
-        child: Text('Welcome, ${user?.displayName ?? 'Student'}!'),
-      ),
-    );
-  }
-}
