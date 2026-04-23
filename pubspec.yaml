@@ -40,6 +40,7 @@ dependencies:
   google_sign_in: ^6.2.1
   cloud_firestore: ^5.4.4
   google_fonts: ^6.2.1
+  geolocator: ^14.0.2
 
 dev_dependencies:
   flutter_test:

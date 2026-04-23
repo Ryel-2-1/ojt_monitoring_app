@@ -1,27 +1,25 @@
 // lib/screens/login_screen.dart
 //
-// PURPOSE: Login screen with Intern/Supervisor tab toggle.
-// Supports Email+Password and Google Sign-In for both roles.
-// Matches the provided GeoAI OJT Monitoring System design.
+// PURPOSE: Mobile-only Intern login screen.
+//
+// ARCHITECTURE RULE:
+//   This screen is ONLY shown on Android (mobile).
+//   kIsWeb is checked in AuthGate — this screen never renders on Web.
+//   There is NO role toggle here. Mobile = Intern, always.
 //
 // WHAT THIS FILE DOES:
-// 1. Shows a tab toggle between Intern and Supervisor
-// 2. Intern tab: Email + Password + Google Sign-In + Create Account
-// 3. Supervisor tab: Email + Password + Google Sign-In + Create Account
-// 4. Wires Google Sign-In to AuthService (from our service layer)
-// 5. Email/Password auth is scaffolded and ready to connect to Firebase Auth
-// 6. All navigation targets are placeholders — replace with real routes
+//   1. Email + Password sign-in wired to AuthService.signInWithEmail()
+//   2. Google Sign-In wired to AuthService.signInWithGoogle()
+//   3. "Create Account" navigates to RegisterScreen (intern-only)
+//   4. "Forgot Password?" placeholder — ready for Phase 4
+//   5. All errors surface via a styled error banner
+//   6. AuthGate stream handles all post-login navigation automatically
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../main.dart'; // for AppServices
-import '../models/user_model.dart';
+import '../main.dart';
 import '../services/auth_service.dart';
 import 'register_screen.dart';
-
-
-// Role enum — used to track which tab is selected
-
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -30,32 +28,69 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen>
-    with SingleTickerProviderStateMixin {
-  // --- State ---
-  UserRole _selectedRole = UserRole.intern;
+class _LoginScreenState extends State<LoginScreen> {
+  // ── State ──────────────────────────────────────────────────────────
   bool _obscurePassword = true;
   bool _isLoading = false;
   String? _errorMessage;
 
-  // Controllers capture text field input
+  final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
-  // Form key for validation
-  final _formKey = GlobalKey<FormState>();
-
   @override
   void dispose() {
-    // Always dispose controllers to avoid memory leaks
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
-  // --- Google Sign-In Handler ---
-  // Calls AuthService.signInWithGoogle() from our service layer.
-  // AuthGate in main.dart will auto-navigate on success via the auth stream.
+  // ── Handlers ───────────────────────────────────────────────────────
+
+  // _handleEmailSignIn():
+  // Calls AuthService.signInWithEmail() which internally:
+  //   1. Authenticates with Firebase
+  //   2. Fetches role from Firestore
+  //   3. Enforces Mobile = Intern rule (throws 'wrong-platform' if supervisor)
+  // On success, AuthGate's stream fires and routes to InternHomeScreen.
+  Future<void> _handleEmailSignIn() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final authService = AppServices.of(context).authService;
+      await authService.signInWithEmail(
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
+      );
+      // Success: AuthGate stream fires automatically — no navigation needed here.
+      if (mounted) setState(() => _isLoading = false);
+    } on AuthException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = e.message;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = 'An unexpected error occurred. Please try again.';
+        _isLoading = false;
+      });
+    }
+  }
+
+  // _handleGoogleSignIn():
+  // Calls AuthService.signInWithGoogle() which internally:
+  //   1. Triggers native Google account picker (Android)
+  //   2. Signs in with Firebase
+  //   3. Creates Firestore profile as 'intern' if first-time Google user
+  //   4. Enforces Mobile = Intern platform rule
+  // On success, AuthGate's stream fires automatically.
   Future<void> _handleGoogleSignIn() async {
     setState(() {
       _isLoading = true;
@@ -66,72 +101,33 @@ class _LoginScreenState extends State<LoginScreen>
       final authService = AppServices.of(context).authService;
       final user = await authService.signInWithGoogle();
 
+      // null means user dismissed the Google picker — not an error.
       if (user == null) {
-        // User cancelled — not an error
-        setState(() => _isLoading = false);
+        if (mounted) setState(() => _isLoading = false);
         return;
       }
 
-      // Check if student profile exists, navigate to setup if not
-      if (mounted && _selectedRole == UserRole.intern) {
-        final studentRepo = AppServices.of(context).studentRepository;
-        final profile = await studentRepo.getStudent(user.uid);
-        if (profile == null && mounted) {
-          // TODO: Navigate to ProfileSetupScreen
-          debugPrint('New intern — navigate to profile setup');
-        }
-      }
-      // AuthGate stream handles navigation to home automatically
-    } catch (e) {
+      if (mounted) setState(() => _isLoading = false);
+    } on AuthException catch (e) {
+      if (!mounted) return;
       setState(() {
-        _errorMessage = e.toString().replaceAll('Exception: ', '');
+        _errorMessage = e.message;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = 'Google Sign-In failed. Please try again.';
         _isLoading = false;
       });
     }
   }
 
-  // --- Email/Password Sign-In Handler ---
-  // Scaffolded — wire to firebase_auth when ready
-  Future<void> _handleEmailSignIn() async {
-  if (!_formKey.currentState!.validate()) return;
-
-  setState(() {
-    _isLoading = true;
-    _errorMessage = null;
-  });
-
-  try {
-    final authService = AppServices.of(context).authService;
-
-    await authService.signInWithEmail(
-      email: _emailController.text.trim(),
-      password: _passwordController.text,
-    );
-
-    if (!mounted) return;
-
-    setState(() {
-      _isLoading = false;
-    });
-  } on AuthException catch (e) {
-    if (!mounted) return;
-    setState(() {
-      _errorMessage = e.message;
-      _isLoading = false;
-    });
-  } catch (e) {
-    if (!mounted) return;
-    setState(() {
-      _errorMessage = e.toString().replaceAll('Exception: ', '');
-      _isLoading = false;
-    });
-  }
-}
+  // ── Build ──────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Light grey background matching the design
       backgroundColor: const Color(0xFFF0F2F5),
       body: SafeArea(
         child: Center(
@@ -141,7 +137,6 @@ class _LoginScreenState extends State<LoginScreen>
               children: [
                 _buildCard(),
                 const SizedBox(height: 16),
-                // Footer
                 Text(
                   'AUTHORIZED PERSONNEL ONLY\n© 2026 GEOAI OJT MONITORING SYSTEM',
                   textAlign: TextAlign.center,
@@ -181,28 +176,32 @@ class _LoginScreenState extends State<LoginScreen>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _buildHeader(),
-            const SizedBox(height: 24),
-            _buildTabToggle(),
-            const SizedBox(height: 24),
+            const SizedBox(height: 28),
             _buildEmailField(),
             const SizedBox(height: 16),
             _buildPasswordField(),
-            const SizedBox(height: 24),
+            const SizedBox(height: 8),
+            _buildForgotPassword(),
+            const SizedBox(height: 20),
             _buildSignInButton(),
             const SizedBox(height: 16),
             _buildDivider(),
             const SizedBox(height: 16),
             _buildGoogleButton(),
+            if (_errorMessage != null) ...[
+              const SizedBox(height: 16),
+              _buildErrorBanner(),
+            ],
             const SizedBox(height: 20),
-            if (_errorMessage != null) _buildErrorMessage(),
-            _buildCreateAccount(),
+            _buildCreateAccountLink(),
           ],
         ),
       ),
     );
   }
 
-  // --- Logo + Title + Subtitle ---
+  // ── Sub-widgets ────────────────────────────────────────────────────
+
   Widget _buildHeader() {
     return Column(
       children: [
@@ -211,7 +210,6 @@ class _LoginScreenState extends State<LoginScreen>
             width: 64,
             height: 64,
             decoration: BoxDecoration(
-              // Blue gradient matching the design's icon background
               gradient: const LinearGradient(
                 colors: [Color(0xFF1565C0), Color(0xFF1E88E5)],
                 begin: Alignment.topLeft,
@@ -226,11 +224,7 @@ class _LoginScreenState extends State<LoginScreen>
                 ),
               ],
             ),
-            child: const Icon(
-              Icons.school_rounded,
-              color: Colors.white,
-              size: 32,
-            ),
+            child: const Icon(Icons.school_rounded, color: Colors.white, size: 32),
           ),
         ),
         const SizedBox(height: 16),
@@ -249,12 +243,12 @@ class _LoginScreenState extends State<LoginScreen>
         const SizedBox(height: 8),
         Center(
           child: Text(
-            'Nurturing the next generation of\nprofessional talent',
+            'Intern Portal',
             textAlign: TextAlign.center,
             style: GoogleFonts.plusJakartaSans(
-              fontSize: 12,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
               color: Colors.grey[500],
-              height: 1.5,
             ),
           ),
         ),
@@ -262,73 +256,12 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
-  // --- Intern / Supervisor Tab Toggle ---
-  // Uses a segmented-style toggle, not a TabBar, to match the design exactly.
-  Widget _buildTabToggle() {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFFF0F2F5),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      padding: const EdgeInsets.all(4),
-      child: Row(
-        children: [
-          _buildTab('Intern', UserRole.intern),
-          _buildTab('Supervisor', UserRole.supervisor),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTab(String label, UserRole role) {
-    final isSelected = _selectedRole == role;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => setState(() {
-          _selectedRole = role;
-          _errorMessage = null; // clear error on tab switch
-        }),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          decoration: BoxDecoration(
-            color: isSelected ? Colors.white : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
-            boxShadow: isSelected
-                ? [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.08),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    )
-                  ]
-                : [],
-          ),
-          child: Center(
-            child: Text(
-              label,
-              style: GoogleFonts.plusJakartaSans(
-                fontSize: 14,
-                fontWeight:
-                    isSelected ? FontWeight.w700 : FontWeight.w500,
-                color: isSelected
-                    ? const Color(0xFF1565C0)
-                    : Colors.grey[500],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // --- Work Email Field ---
   Widget _buildEmailField() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'WORK EMAIL',
+          'SCHOOL EMAIL',
           style: GoogleFonts.plusJakartaSans(
             fontSize: 11,
             fontWeight: FontWeight.w700,
@@ -340,13 +273,14 @@ class _LoginScreenState extends State<LoginScreen>
         TextFormField(
           controller: _emailController,
           keyboardType: TextInputType.emailAddress,
+          textInputAction: TextInputAction.next,
           style: GoogleFonts.plusJakartaSans(fontSize: 14),
           decoration: _inputDecoration(
-            hint: 'name@company.com',
+            hint: 'name@university.edu',
             icon: Icons.email_outlined,
           ),
           validator: (value) {
-            if (value == null || value.isEmpty) return 'Email is required';
+            if (value == null || value.trim().isEmpty) return 'Email is required';
             if (!value.contains('@')) return 'Enter a valid email';
             return null;
           },
@@ -355,51 +289,32 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
-  // --- Security Key (Password) Field ---
   Widget _buildPasswordField() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              'SECURITY KEY',
-              style: GoogleFonts.plusJakartaSans(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 1.0,
-                color: Colors.grey[700],
-              ),
-            ),
-            GestureDetector(
-              onTap: () {
-                // TODO: Navigate to ForgotPasswordScreen
-                debugPrint('Forgot password tapped');
-              },
-              child: Text(
-                'Forgot?',
-                style: GoogleFonts.plusJakartaSans(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: const Color(0xFF1565C0),
-                ),
-              ),
-            ),
-          ],
+        Text(
+          'PASSWORD',
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.0,
+            color: Colors.grey[700],
+          ),
         ),
         const SizedBox(height: 8),
         TextFormField(
           controller: _passwordController,
           obscureText: _obscurePassword,
+          textInputAction: TextInputAction.done,
+          // Pressing "done" on keyboard triggers sign-in directly
+          onFieldSubmitted: (_) => _handleEmailSignIn(),
           style: GoogleFonts.plusJakartaSans(fontSize: 14),
           decoration: _inputDecoration(
             hint: '••••••••',
             icon: Icons.lock_outline_rounded,
-            // Eye icon to toggle password visibility
             suffix: GestureDetector(
-              onTap: () =>
-                  setState(() => _obscurePassword = !_obscurePassword),
+              onTap: () => setState(() => _obscurePassword = !_obscurePassword),
               child: Icon(
                 _obscurePassword
                     ? Icons.visibility_off_outlined
@@ -419,7 +334,44 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
-  // --- Sign In Button ---
+  // _buildForgotPassword():
+  // Placeholder container for Phase 4 (forgot password flow).
+  // Currently shows a SnackBar so the UI is not a dead end.
+  // Replace onTap body with Navigator.push to ForgotPasswordScreen when ready.
+  Widget _buildForgotPassword() {
+    return Align(
+      alignment: Alignment.centerRight,
+      child: GestureDetector(
+        onTap: () {
+          // TODO Phase 4: Replace with ForgotPasswordScreen navigation
+          // Navigator.push(context, MaterialPageRoute(
+          //   builder: (_) => const ForgotPasswordScreen()));
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Password reset coming soon.',
+                style: GoogleFonts.plusJakartaSans(fontSize: 13),
+              ),
+              duration: const Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Text(
+            'Forgot Password?',
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: const Color(0xFF1565C0),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildSignInButton() {
     return SizedBox(
       width: double.infinity,
@@ -429,16 +381,15 @@ class _LoginScreenState extends State<LoginScreen>
         style: ElevatedButton.styleFrom(
           backgroundColor: const Color(0xFF1565C0),
           foregroundColor: Colors.white,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          disabledBackgroundColor: const Color(0xFF1565C0).withOpacity(0.6),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           elevation: 0,
         ),
         child: _isLoading
             ? const SizedBox(
                 width: 20,
                 height: 20,
-                child: CircularProgressIndicator(
-                    strokeWidth: 2, color: Colors.white),
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
               )
             : Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -446,9 +397,7 @@ class _LoginScreenState extends State<LoginScreen>
                   Text(
                     'Sign In',
                     style: GoogleFonts.plusJakartaSans(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                    ),
+                        fontSize: 15, fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(width: 8),
                   const Icon(Icons.arrow_forward_rounded, size: 18),
@@ -458,7 +407,6 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
-  // --- "or continue with" Divider ---
   Widget _buildDivider() {
     return Row(
       children: [
@@ -467,10 +415,7 @@ class _LoginScreenState extends State<LoginScreen>
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Text(
             'or continue with',
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: 12,
-              color: Colors.grey[500],
-            ),
+            style: GoogleFonts.plusJakartaSans(fontSize: 12, color: Colors.grey[500]),
           ),
         ),
         Expanded(child: Divider(color: Colors.grey[300])),
@@ -478,7 +423,6 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
-  // --- Google Sign-In Button ---
   Widget _buildGoogleButton() {
     return SizedBox(
       width: double.infinity,
@@ -487,14 +431,11 @@ class _LoginScreenState extends State<LoginScreen>
         onPressed: _isLoading ? null : _handleGoogleSignIn,
         style: OutlinedButton.styleFrom(
           side: BorderSide(color: Colors.grey[300]!),
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Google 'G' logo using colored text as a lightweight substitute
-            // Replace with an actual SVG asset if needed
             RichText(
               text: const TextSpan(
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
@@ -523,75 +464,68 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
-  // --- Error Message ---
-  Widget _buildErrorMessage() {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: const Color(0xFFFFEBEE),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: const Color(0xFFEF9A9A)),
+  // _buildErrorBanner():
+  // Shown below the Google button when an error occurs.
+  // Includes an icon for visual clarity and wraps long messages cleanly.
+  Widget _buildErrorBanner() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFEBEE),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFEF9A9A)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.error_outline, size: 16, color: Color(0xFFC62828)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              _errorMessage!,
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 12,
+                color: const Color(0xFFC62828),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // _buildCreateAccountLink():
+  // Navigates to RegisterScreen.
+  // RegisterScreen is intern-only — it has no role selector and
+  // always calls registerIntern(). This is safe by design.
+  Widget _buildCreateAccountLink() {
+    return Center(
+      child: GestureDetector(
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const RegisterScreen()),
         ),
-        child: Text(
-          _errorMessage!,
-          style: GoogleFonts.plusJakartaSans(
-            fontSize: 12,
-            color: const Color(0xFFC62828),
+        child: RichText(
+          text: TextSpan(
+            style: GoogleFonts.plusJakartaSans(fontSize: 13, color: Colors.grey[600]),
+            children: [
+              const TextSpan(text: 'New to the internship? '),
+              TextSpan(
+                text: 'Create Account',
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: const Color(0xFF1565C0),
+                ),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
 
-  // --- Create Account Footer ---
-  Widget _buildCreateAccount() {
-    final roleLabel =
-        _selectedRole == UserRole.intern ? 'internship' : 'Company';
-    final question = _selectedRole == UserRole.intern
-        ? 'New to the internship?'
-        : 'New to the Company?';
-
-    return Center(
-      child: RichText(
-        text: TextSpan(
-          style: GoogleFonts.plusJakartaSans(
-              fontSize: 13, color: Colors.grey[600]),
-          children: [
-            TextSpan(text: '$question '),
-            WidgetSpan(
-              child: GestureDetector(
-                onTap: () {
-                  // TODO: Navigate to RegisterScreen
-                  // Pass _selectedRole so the registration form knows
-                  // whether it's an intern or supervisor signing up
-                  Navigator.push(
-  context,
-  MaterialPageRoute(
-    builder: (_) => const RegisterScreen(),
-  ),
-);
-                },
-                child: Text(
-                  'Create Account',
-                  style: GoogleFonts.plusJakartaSans(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: const Color(0xFF1565C0),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // --- Reusable Input Decoration ---
-  // Centralizes the styling for all text fields so they stay consistent.
   InputDecoration _inputDecoration({
     required String hint,
     required IconData icon,
@@ -599,14 +533,12 @@ class _LoginScreenState extends State<LoginScreen>
   }) {
     return InputDecoration(
       hintText: hint,
-      hintStyle: GoogleFonts.plusJakartaSans(
-          fontSize: 14, color: Colors.grey[400]),
+      hintStyle: GoogleFonts.plusJakartaSans(fontSize: 14, color: Colors.grey[400]),
       prefixIcon: Icon(icon, size: 18, color: Colors.grey[500]),
       suffixIcon: suffix,
       filled: true,
       fillColor: const Color(0xFFF8F9FA),
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
         borderSide: BorderSide(color: Colors.grey[200]!),
@@ -617,8 +549,11 @@ class _LoginScreenState extends State<LoginScreen>
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
-        borderSide:
-            const BorderSide(color: Color(0xFF1565C0), width: 1.5),
+        borderSide: const BorderSide(color: Color(0xFF1565C0), width: 1.5),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: Color(0xFFEF5350), width: 1.5),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),

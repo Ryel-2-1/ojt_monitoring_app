@@ -1,88 +1,7 @@
-// lib/repositories/attendance_repository.dart
-//
-// PURPOSE: All Firestore operations for the `attendance` collection.
-// Attendance logs are append-only (never edited, rarely deleted),
-// so this repository focuses on: add, query by UID, and stream today's log.
-
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../models/attendance_model.dart';
 import '../services/firestore_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
-// Enum for attendance status — prevents magic strings like "clock-in" vs "Clock In"
-enum AttendanceStatus { clockIn, clockOut }
-
-extension AttendanceStatusExtension on AttendanceStatus {
-  // What gets stored in Firestore
-  String get value {
-    switch (this) {
-      case AttendanceStatus.clockIn:
-        return 'Clock-In';
-      case AttendanceStatus.clockOut:
-        return 'Clock-Out';
-    }
-  }
-
-  // Parse from Firestore string back to enum
-  static AttendanceStatus fromString(String value) {
-    switch (value) {
-      case 'Clock-In':
-        return AttendanceStatus.clockIn;
-      case 'Clock-Out':
-        return AttendanceStatus.clockOut;
-      default:
-        return AttendanceStatus.clockIn;
-    }
-  }
-}
-
-// --- AttendanceModel ---
-// Mirrors one document in the `attendance` collection.
-class AttendanceModel {
-  final String? id;              // Firestore auto-generated doc ID (null before save)
-  final String uid;              // The student's Firebase Auth UID
-  final DateTime timestamp;      // When the log was created
-  final AttendanceStatus status; // Clock-In or Clock-Out
-  final GeoPoint? locationCoords; // Firestore's native lat/lng type (nullable)
-
-  const AttendanceModel({
-    this.id,
-    required this.uid,
-    required this.timestamp,
-    required this.status,
-    this.locationCoords,
-  });
-
-  // toMap(): used when writing to Firestore.
-  // We use FieldValue.serverTimestamp() instead of DateTime.now() so
-  // the timestamp is set by Firestore's servers — not the device clock,
-  // which could be wrong or spoofed.
-  Map<String, dynamic> toMap() => {
-        'uid': uid,
-        // FieldValue.serverTimestamp() tells Firestore: "set this when you
-        // receive the write request." This is more reliable than client time.
-        'timestamp': FieldValue.serverTimestamp(),
-        'status': status.value,
-        if (locationCoords != null) 'location_coords': locationCoords,
-      };
-
-  // fromMap(): used when reading from Firestore.
-  factory AttendanceModel.fromMap(Map<String, dynamic> map, {String? id}) {
-    // Firestore Timestamps must be converted to Dart DateTime.
-    final rawTimestamp = map['timestamp'];
-    final DateTime parsedTimestamp = rawTimestamp is Timestamp
-        ? rawTimestamp.toDate()
-        : DateTime.now(); // fallback if timestamp is somehow null
-
-    return AttendanceModel(
-      id: id,
-      uid: map['uid'] ?? '',
-      timestamp: parsedTimestamp,
-      status: AttendanceStatusExtension.fromString(map['status'] ?? 'Clock-In'),
-      locationCoords: map['location_coords'] as GeoPoint?,
-    );
-  }
-}
-
-// --- AttendanceRepository ---
 class AttendanceRepository {
   final FirestoreService _firestoreService;
 
@@ -91,9 +10,9 @@ class AttendanceRepository {
 
   static const String _collection = 'attendance';
 
-  // --- Log a Clock-In or Clock-Out ---
-  // Returns the new document's auto-generated ID.
-  // We don't set a docId — Firestore generates one (addDocument).
+  // ─────────────────────────────────────────────
+  // LOG ATTENDANCE (Clock-In / Clock-Out)
+  // ─────────────────────────────────────────────
   Future<String> logAttendance({
     required String uid,
     required AttendanceStatus status,
@@ -101,7 +20,7 @@ class AttendanceRepository {
   }) async {
     final log = AttendanceModel(
       uid: uid,
-      timestamp: DateTime.now(), // local time used in the model, server time in Firestore
+      timestamp: DateTime.now(),
       status: status,
       locationCoords: locationCoords,
     );
@@ -112,57 +31,143 @@ class AttendanceRepository {
     );
   }
 
-  // --- Get all attendance logs for a student ---
-  // Sorted newest-first. Use this for the student's history screen.
+  // ─────────────────────────────────────────────
+  // GET ALL ATTENDANCE (History)
+  // ─────────────────────────────────────────────
   Future<List<AttendanceModel>> getAttendanceByStudent(String uid) async {
-    final results = await _firestoreService.queryCollection(
-      path: _collection,
-      field: 'uid',
-      value: uid,
-      orderBy: 'timestamp',
-      descending: true,
-    );
+    final snapshot = await _firestoreService
+        .collection(_collection)
+        .where('uid', isEqualTo: uid)
+        .orderBy('timestamp', descending: true)
+        .get();
 
-    return results
-        .map((data) => AttendanceModel.fromMap(data, id: data['id']))
+    return snapshot.docs
+        .map((doc) => AttendanceModel.fromMap(doc.data(), id: doc.id))
         .toList();
   }
 
-  // --- Stream attendance logs for a student (real-time) ---
-  // Use with StreamBuilder so the log screen updates instantly
-  // when a new record is added (e.g., after a QR scan).
+  // ─────────────────────────────────────────────
+  // STREAM ALL ATTENDANCE (Realtime)
+  // ─────────────────────────────────────────────
   Stream<List<AttendanceModel>> streamAttendanceByStudent(String uid) {
-    return _firestoreService.streamCollection(
-      path: _collection,
-      field: 'uid',
-      value: uid,
-      orderBy: 'timestamp',
-      descending: true,
-    ).map((list) =>
-        list.map((data) => AttendanceModel.fromMap(data, id: data['id'])).toList());
+    return _firestoreService
+        .collection(_collection)
+        .where('uid', isEqualTo: uid)
+        .orderBy('timestamp', descending: false)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs
+          .map((doc) => AttendanceModel.fromMap(doc.data(), id: doc.id))
+          .toList();
+    });
   }
 
-  // --- Get today's logs for a student ---
-  // Useful for checking if a student has already clocked in today.
-  // We query all of the student's logs then filter client-side for today,
-  // because Firestore doesn't support date-range + UID compound queries
-  // without a composite index. For large datasets, add that index instead.
+  // ─────────────────────────────────────────────
+  // GET TODAY'S ATTENDANCE
+  // ─────────────────────────────────────────────
   Future<List<AttendanceModel>> getTodayAttendance(String uid) async {
-    final allLogs = await getAttendanceByStudent(uid);
     final now = DateTime.now();
+    final startOfDay = DateTime(now.year, now.month, now.day);
 
-    return allLogs.where((log) {
-      return log.timestamp.year == now.year &&
-          log.timestamp.month == now.month &&
-          log.timestamp.day == now.day;
-    }).toList();
+    final snapshot = await _firestoreService
+        .collection(_collection)
+        .where('uid', isEqualTo: uid)
+        .where('timestamp',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
+        .orderBy('timestamp', descending: true)
+        .get();
+
+    return snapshot.docs
+        .map((doc) => AttendanceModel.fromMap(doc.data(), id: doc.id))
+        .toList();
   }
 
-  // --- Check if student is currently "clocked in" ---
-  // Returns true if the most recent log today was a Clock-In.
+  // ─────────────────────────────────────────────
+  // CHECK IF CURRENTLY CLOCKED IN
+  // ─────────────────────────────────────────────
   Future<bool> isCurrentlyClockedIn(String uid) async {
     final todayLogs = await getTodayAttendance(uid);
     if (todayLogs.isEmpty) return false;
     return todayLogs.first.status == AttendanceStatus.clockIn;
+  }
+
+  // ─────────────────────────────────────────────
+  // STREAM WEEKLY TOTAL HOURS (FOR DASHBOARD)
+  // ─────────────────────────────────────────────
+  Stream<double> watchWeeklyTotal(String uid) {
+    final now = DateTime.now();
+    final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
+    final startTimestamp = DateTime(
+      startOfWeek.year,
+      startOfWeek.month,
+      startOfWeek.day,
+    );
+
+    return _firestoreService
+        .collection(_collection)
+        .where('uid', isEqualTo: uid)
+        .orderBy('timestamp', descending: false)
+        .snapshots()
+        .map((snapshot) {
+      final logs = snapshot.docs
+          .map((doc) => AttendanceModel.fromMap(doc.data(), id: doc.id))
+          .where((log) => !log.timestamp.isBefore(startTimestamp))
+          .toList();
+
+      double totalHours = 0;
+      DateTime? lastClockIn;
+
+      for (final log in logs) {
+        if (log.status == AttendanceStatus.clockIn) {
+          lastClockIn = log.timestamp;
+        } else if (log.status == AttendanceStatus.clockOut &&
+            lastClockIn != null) {
+          totalHours +=
+              log.timestamp.difference(lastClockIn).inMinutes / 60.0;
+          lastClockIn = null;
+        }
+      }
+
+      return totalHours;
+    });
+  }
+
+  // ─────────────────────────────────────────────
+  // STREAM LATEST LOG (for dashboard live status)
+  // ─────────────────────────────────────────────
+  Stream<AttendanceModel?> watchLatestLog(String uid) {
+    return _firestoreService
+        .collection(_collection)
+        .where('uid', isEqualTo: uid)
+        .orderBy('timestamp', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      if (snapshot.docs.isEmpty) return null;
+      final doc = snapshot.docs.first;
+      return AttendanceModel.fromMap(doc.data(), id: doc.id);
+    });
+  }
+
+  // ─────────────────────────────────────────────
+  // GET CURRENT WEEK LOGS
+  // ─────────────────────────────────────────────
+  Future<List<AttendanceModel>> getLogsForCurrentWeek(String uid) async {
+    final now = DateTime.now();
+    final startOfWeek = DateTime(
+      now.year,
+      now.month,
+      now.day,
+    ).subtract(Duration(days: now.weekday - 1));
+
+    final snapshot = await _firestoreService
+        .collection(_collection)
+        .where('uid', isEqualTo: uid)
+        .orderBy('timestamp', descending: false)
+        .get();
+
+    return snapshot.docs
+        .map((doc) => AttendanceModel.fromMap(doc.data(), id: doc.id))
+        .where((log) => !log.timestamp.isBefore(startOfWeek))
+        .toList();
   }
 }

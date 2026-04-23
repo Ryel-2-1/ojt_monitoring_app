@@ -9,7 +9,7 @@
 //   - UI code just calls studentRepo.saveStudent(...), never raw Firestore.
 //   - If you rename a Firestore field later, you fix it here only.
 
-import '../../services/firestore_service.dart';
+import '../services/firestore_service.dart';
 
 // --- StudentModel ---
 // A plain Dart class that mirrors one document in `students` collection.

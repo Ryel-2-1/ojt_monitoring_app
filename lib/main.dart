@@ -1,45 +1,50 @@
 // lib/main.dart
 //
-// PURPOSE: App entry point. Handles:
-//   1. Manual Firebase initialization (bypassing flutterfire CLI).
-//   2. Wiring up services via an InheritedWidget (AppServices).
-//   3. A root widget that listens to auth state and routes accordingly.
+// RACE CONDITION FIX (Phase 3.1):
+//
+// WHAT WAS HAPPENING:
+//   Auth state changes → AuthGate's FutureBuilder fires instantly
+//   → getUserRole() returns null (Firestore write not committed yet)
+//   → auto sign-out → back to login
+//
+// THE FIX IN AuthGate:
+//   1. AuthGate now uses getUserRoleWithRetry() (via UserRepository)
+//      instead of getUserRole() directly, so it waits up to ~3s
+//      for the Firestore document to become readable.
+//   2. The loading screen stays visible during this wait — the user
+//      never sees a flash back to the login screen.
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart'
+    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart'; // Fixes the 'User' type error
-import 'models/user_model.dart'; // Fixes the 'UserRole' enum error
+import 'package:firebase_auth/firebase_auth.dart';
+import 'screens/intern_home_screen.dart';
+import 'models/user_model.dart';
 import 'services/auth_service.dart';
 import 'repositories/student_repository.dart';
 import 'repositories/attendance_repository.dart';
-import 'screens/login_screen.dart';
 import 'repositories/user_repository.dart';
-import 'screens/admin_dashboard_layout.dart';
 import 'repositories/role_repository.dart';
-import 'screens/access_control_screen.dart';
+import 'screens/login_screen.dart';
 import 'screens/web_login_screen.dart';
-
-// -------------------------------------------------------------------
-// STEP 1: Firebase Manual Configuration
-// We bypass `flutterfire configure` and hardcode the Web config here.
-// Android reads from google-services.json automatically.
-// -------------------------------------------------------------------
+import 'screens/admin_dashboard_layout.dart';
+import 'screens/access_control_screen.dart';
 
 const FirebaseOptions _webFirebaseOptions = FirebaseOptions(
-  apiKey: "AIzaSyByaNJZjhXfedXhs-71GjazPYhegb36bBM",
-  authDomain: "ojt-monitoring-system-44070.firebaseapp.com",
-  projectId: "ojt-monitoring-system-44070",
-  storageBucket: "ojt-monitoring-system-44070.firebasestorage.app",
-  messagingSenderId: "910935241512",
-  appId: "1:910935241512:web:15533661247267339d561d",
-  measurementId: "G-QK59E8TEW8",
+  apiKey: 'AIzaSyByaNJZjhXfedXhs-71GjazPYhegb36bBM',
+  authDomain: 'ojt-monitoring-system-44070.firebaseapp.com',
+  projectId: 'ojt-monitoring-system-44070',
+  storageBucket: 'ojt-monitoring-system-44070.firebasestorage.app',
+  messagingSenderId: '910935241512',
+  appId: '1:910935241512:web:15533661247267339d561d',
+  measurementId: 'G-QK59E8TEW8',
 );
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  if (kIsWeb) {
+  if (kIsWeb || defaultTargetPlatform == TargetPlatform.windows) {
     await Firebase.initializeApp(options: _webFirebaseOptions);
   } else {
     await Firebase.initializeApp();
@@ -48,23 +53,20 @@ void main() async {
   runApp(const OjtApp());
 }
 
-// -------------------------------------------------------------------
-// STEP 2: AppServices — InheritedWidget for Dependency Injection
-// -------------------------------------------------------------------
 class AppServices extends InheritedWidget {
   final AuthService authService;
   final StudentRepository studentRepository;
   final AttendanceRepository attendanceRepository;
-  final UserRepository userRepository; // Add this line
+  final UserRepository userRepository;
   final RoleRepository roleRepository;
-  
+
   const AppServices({
     super.key,
     required this.authService,
     required this.studentRepository,
     required this.attendanceRepository,
-    required this.userRepository, // Add this line
-    required this.roleRepository, // Add this line
+    required this.userRepository,
+    required this.roleRepository,
     required super.child,
   });
 
@@ -78,45 +80,41 @@ class AppServices extends InheritedWidget {
   bool updateShouldNotify(AppServices oldWidget) => false;
 }
 
-// -------------------------------------------------------------------
-// STEP 3: Root App Widget
-// -------------------------------------------------------------------
 class OjtApp extends StatelessWidget {
   const OjtApp({super.key});
 
-
-
   @override
   Widget build(BuildContext context) {
-    final authService = AuthService();
-    final studentRepository = StudentRepository();
-    final attendanceRepository = AttendanceRepository();
-    final userRepository = UserRepository(); // Instantiate here
-    final roleRepository = RoleRepository(); // Instantiate here
-
     return AppServices(
-      authService: authService,
-      studentRepository: studentRepository,
-      attendanceRepository: attendanceRepository,
-     
-      userRepository: userRepository,
-      roleRepository: roleRepository,
+      authService: AuthService(),
+      studentRepository: StudentRepository(),
+      attendanceRepository: AttendanceRepository(),
+      userRepository: UserRepository(),
+      roleRepository: RoleRepository(),
       child: MaterialApp(
-        title: 'OJT Monitoring System',
+        title: 'GeoAI OJT Monitoring System',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF8B0000)), // PUP Maroon
+          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1565C0)),
           useMaterial3: true,
         ),
-       home: const AuthGate(),
+        home: const AuthGate(),
       ),
     );
   }
 }
 
-// -------------------------------------------------------------------
-// STEP 4: AuthGate — Listens to auth state and routes the user
-// -------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────
+// AuthGate
+//
+// ROUTING TABLE:
+//   Not logged in       → LoginScreen (mobile) / WebLoginScreen (web)
+//   Logged in, loading  → _LoadingScreen (spinner)
+//   intern  + mobile    → InternHomeScreen
+//   supervisor + web    → AdminDashboardLayout
+//   mismatch            → _RoleMismatchScreen (with Sign Out button)
+//   null role           → auto sign-out → back to login
+// ─────────────────────────────────────────────────────────────────────
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
 
@@ -127,64 +125,196 @@ class AuthGate extends StatelessWidget {
 
     return StreamBuilder<User?>(
       stream: authService.authStateChanges,
-      builder: (context, snapshot) {
-        // 1. If NOT logged in, show the platform-specific login screen
-        if (!snapshot.hasData || snapshot.data == null) {
+      builder: (context, authSnapshot) {
+        // Still connecting to Firebase
+        if (authSnapshot.connectionState == ConnectionState.waiting) {
+          return const _LoadingScreen();
+        }
+
+        // Not logged in
+        if (!authSnapshot.hasData || authSnapshot.data == null) {
           return kIsWeb ? const WebLoginScreen() : const LoginScreen();
         }
 
-        // 2. If logged in, we must check the Role to route correctly
+        // Logged in — fetch role
+        final uid = authSnapshot.data!.uid;
+
         return FutureBuilder<UserRole?>(
-          future: userRepo.getUserRole(snapshot.data!.uid), // Uses your new repo helper
+          // Use the retry version so we survive Firestore propagation lag.
+          // This is the key fix — getUserRoleWithRetry waits up to ~3.5s
+          // before giving up, bridging the gap between Auth and Firestore.
+          future: userRepo.getUserRoleWithRetry(uid),
           builder: (context, roleSnapshot) {
-           if (roleSnapshot.connectionState == ConnectionState.waiting) {
-  return const Scaffold(
-    body: Center(child: CircularProgressIndicator()),
-  );
-}
+            // Fetching role
+            if (roleSnapshot.connectionState == ConnectionState.waiting) {
+              return const _LoadingScreen(message: 'Verifying your account...');
+            }
 
-if (roleSnapshot.hasError) {
-  return Scaffold(
-    body: Center(
-      child: Text('Error: ${roleSnapshot.error}'),
-    ),
-  );
-}
+            // Fetch error
+            if (roleSnapshot.hasError) {
+              return _RoleMismatchScreen(
+                message:
+                    'Could not verify your account. Please sign in again.\n\n'
+                    'Error: ${roleSnapshot.error}',
+                authService: authService,
+              );
+            }
 
-final role = roleSnapshot.data;
+            final role = roleSnapshot.data;
 
-if (role == null) {
-  return const Scaffold(
-    body: Center(
-      child: Text('No role found for this account'),
-    ),
-  );
-}
+            // No profile found even after retries
+            // → sign out and return to login cleanly
+            if (role == null) {
+              WidgetsBinding.instance.addPostFrameCallback((_) async {
+                await authService.signOut();
+              });
+              return const _LoadingScreen(message: 'Signing out...');
+            }
 
-            // 3. Routing Logic: Platform + Role Enforcement
+            // ── Route correctly ───────────────────────────────────
+
             if (kIsWeb && role == UserRole.supervisor) {
               return const AdminDashboardLayout(
                 child: AccessControlScreen(),
               );
-            } else if (!kIsWeb && role == UserRole.intern) {
-              // This is where you will build your Intern Home Screen
-              return const Scaffold(
-                body: Center(child: Text('Intern Mobile Home')),
-              );
             }
 
-            // 4. Emergency Fallback: If role/platform don't match, send back to login
-           return Scaffold(
-  body: Center(
-    child: Text('Access denied or role mismatch'),
-  ),
-);
+            if (!kIsWeb && role == UserRole.intern) {
+              return const InternHomeScreen();
+            }
+
+            // Role / platform mismatch — never a dead end
+            final mismatchMessage = kIsWeb
+                ? 'This portal is for Supervisors only.\n'
+                    'Please use the mobile app to access your Intern account.'
+                : 'This app is for Interns only.\n'
+                    'Please use the web portal to access your Supervisor account.';
+
+            return _RoleMismatchScreen(
+              message: mismatchMessage,
+              authService: authService,
+            );
           },
         );
       },
     );
   }
 }
-// -------------------------------------------------------------------
-// PLACEHOLDER SCREENS
-// -------------------------------------------------------------------
+
+// ─────────────────────────────────────────────────────────────────────
+// _LoadingScreen
+// ─────────────────────────────────────────────────────────────────────
+class _LoadingScreen extends StatelessWidget {
+  final String? message;
+  const _LoadingScreen({this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF0F2F5),
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(
+              valueColor: AlwaysStoppedAnimation(Color(0xFF1565C0)),
+            ),
+            if (message != null) ...[
+              const SizedBox(height: 16),
+              Text(
+                message!,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey[600], fontSize: 13),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// _RoleMismatchScreen
+// Always shows a Sign Out button — user is never stuck.
+// ─────────────────────────────────────────────────────────────────────
+class _RoleMismatchScreen extends StatelessWidget {
+  final String message;
+  final AuthService authService;
+  const _RoleMismatchScreen(
+      {required this.message, required this.authService});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF0F2F5),
+      body: Center(
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 380),
+          margin: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(28),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.07),
+                blurRadius: 20,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFEBEE),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(Icons.block_rounded,
+                    color: Color(0xFFC62828), size: 28),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Access Denied',
+                style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.black87),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    fontSize: 13, color: Colors.grey[600], height: 1.5),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                height: 46,
+                child: ElevatedButton.icon(
+                  onPressed: () => authService.signOut(),
+                  icon: const Icon(Icons.logout_rounded, size: 18),
+                  label: const Text('Sign Out',
+                      style: TextStyle(fontWeight: FontWeight.w700)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1565C0),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                    elevation: 0,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
