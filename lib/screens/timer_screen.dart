@@ -1,14 +1,14 @@
-// lib/screens/timer_screen.dart
-
 import 'dart:async';
 import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../main.dart';
 import '../models/attendance_model.dart';
 import '../models/geofence_settings.dart';
-import '../services/location_service.dart';
+import '../services/location_service.dart' as app_location;
 
 class TimerScreen extends StatefulWidget {
   const TimerScreen({super.key});
@@ -19,14 +19,12 @@ class TimerScreen extends StatefulWidget {
 
 class _TimerScreenState extends State<TimerScreen>
     with TickerProviderStateMixin {
-  // ── State ──────────────────────────────────────────────────────────
-
   bool _isLoading = true;
   bool _isClockedIn = false;
   String? _statusMessage;
   String? _errorMessage;
 
-  LocationService? _locationService;
+  app_location.LocationService? _locationService;
   bool _didInit = false;
 
   double? _targetLat;
@@ -37,11 +35,10 @@ class _TimerScreenState extends State<TimerScreen>
   Duration _elapsedDuration = Duration.zero;
   DateTime? _clockInTime;
 
-  // Ring animation
+  StreamSubscription<Position>? _positionStreamSub;
+
   late AnimationController _ringController;
   late Animation<double> _ringAnimation;
-
-  // ── Lifecycle ──────────────────────────────────────────────────────
 
   @override
   void initState() {
@@ -50,7 +47,9 @@ class _TimerScreenState extends State<TimerScreen>
       vsync: this,
       duration: const Duration(seconds: 3),
     )..repeat();
-    _ringAnimation = CurvedAnimation(parent: _ringController, curve: Curves.linear);
+
+    _ringAnimation =
+        CurvedAnimation(parent: _ringController, curve: Curves.linear);
   }
 
   @override
@@ -60,18 +59,18 @@ class _TimerScreenState extends State<TimerScreen>
     _didInit = true;
 
     final attendanceRepo = AppServices.of(context).attendanceRepository;
-    _locationService = LocationService(attendanceRepository: attendanceRepo);
+    _locationService =
+    app_location.LocationService(attendanceRepository: attendanceRepo);
     _initializeFlow();
   }
 
   @override
   void dispose() {
     _liveTimer?.cancel();
+    _positionStreamSub?.cancel();
     _ringController.dispose();
     super.dispose();
   }
-
-  // ── Initialization ─────────────────────────────────────────────────
 
   Future<void> _initializeFlow() async {
     try {
@@ -91,6 +90,7 @@ class _TimerScreenState extends State<TimerScreen>
         alreadyClockedIn = true;
         _clockInTime = logs.first.timestamp;
         _startTimer(_clockInTime!);
+        await _startLiveTracking();
       }
 
       if (mounted) {
@@ -102,16 +102,19 @@ class _TimerScreenState extends State<TimerScreen>
     } on GeofenceNotAssignedException catch (e) {
       if (mounted) _showError(e.message);
     } catch (_) {
-      if (mounted) _showError('Failed to load. Please go back and try again.');
+      if (mounted) {
+        _showError('Failed to load. Please go back and try again.');
+      }
     }
   }
-
-  // ── Timer helpers ──────────────────────────────────────────────────
 
   void _startTimer(DateTime startTime) {
     _liveTimer?.cancel();
     _liveTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() => _elapsedDuration = DateTime.now().difference(startTime));
+      if (!mounted) return;
+      setState(() {
+        _elapsedDuration = DateTime.now().difference(startTime);
+      });
     });
   }
 
@@ -119,15 +122,61 @@ class _TimerScreenState extends State<TimerScreen>
     _liveTimer?.cancel();
     _liveTimer = null;
     _clockInTime = null;
-    if (mounted) setState(() => _elapsedDuration = Duration.zero);
+    if (mounted) {
+      setState(() {
+        _elapsedDuration = Duration.zero;
+      });
+    }
+  }
+
+  Future<void> _startLiveTracking() async {
+    final services = AppServices.of(context);
+    final currentUser = services.authService.currentUser;
+    if (currentUser == null) return;
+
+    await _positionStreamSub?.cancel();
+
+    _positionStreamSub = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 10,
+      ),
+    ).listen((Position position) async {
+      try {
+        await services.liveLocationRepository.upsertLiveLocation(
+          uid: currentUser.uid,
+          fullName: currentUser.displayName ?? 'Intern',
+          email: currentUser.email ?? '',
+          latitude: position.latitude,
+          longitude: position.longitude,
+          accuracy: position.accuracy,
+          isClockedIn: true,
+          lastStatus: 'Clock-In',
+        );
+      } catch (_) {
+        // Do not interrupt UI if live tracking write fails.
+      }
+    });
+  }
+
+  Future<void> _stopLiveTracking() async {
+    await _positionStreamSub?.cancel();
+    _positionStreamSub = null;
+
+    try {
+      final uid = AppServices.of(context).authService.currentUser?.uid;
+      if (uid != null) {
+        await AppServices.of(context).liveLocationRepository.setClockedOut(uid);
+      }
+    } catch (_) {
+      // Do not block clock-out if cleanup fails.
+    }
   }
 
   String _formatDuration(Duration d) {
     String pad(int n) => n.toString().padLeft(2, '0');
     return '${pad(d.inHours)}:${pad(d.inMinutes.remainder(60))}:${pad(d.inSeconds.remainder(60))}';
   }
-
-  // ── Clock-In / Clock-Out ───────────────────────────────────────────
 
   Future<void> _handleStart() async {
     if (_isClockedIn || _targetLat == null) return;
@@ -176,17 +225,27 @@ class _TimerScreenState extends State<TimerScreen>
       if (nowClockedIn) {
         _clockInTime = confirmedAt;
         _startTimer(confirmedAt);
+        await _startLiveTracking();
       } else {
+        await _stopLiveTracking();
         _stopTimer();
       }
-    } on OutsideGeofenceException catch (e) {
-      if (mounted) _showError(e.toString());
-    } on LocationServiceDisabledException catch (e) {
-      if (mounted) _showError(e.toString());
-    } on LocationPermissionDeniedException catch (e) {
-      if (mounted) _showError(e.toString());
+    } on app_location.OutsideGeofenceException catch (e) {
+      if (mounted) {
+        _showError(e.toString());
+      }
+    } on app_location.LocationServiceDisabledException catch (e) {
+      if (mounted) {
+        _showError(e.toString());
+      }
+    } on app_location.LocationPermissionDeniedException catch (e) {
+      if (mounted) {
+        _showError(e.toString());
+      }
     } catch (_) {
-      if (mounted) _showError('An unexpected error occurred. Please try again.');
+      if (mounted) {
+        _showError('An unexpected error occurred. Please try again.');
+      }
     }
   }
 
@@ -198,8 +257,6 @@ class _TimerScreenState extends State<TimerScreen>
       _isLoading = false;
     });
   }
-
-  // ── Build ──────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -217,27 +274,16 @@ class _TimerScreenState extends State<TimerScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Current Assignment
                     _buildAssignmentCard(),
                     const SizedBox(height: 20),
-
-                    // Timer Ring
                     _buildTimerRing(),
                     const SizedBox(height: 24),
-
-                    // Start / Stop buttons
                     _buildActionButtons(geofenceReady),
                     const SizedBox(height: 20),
-
-                    // Status / Error
                     if (_errorMessage != null || _statusMessage != null)
                       _buildStatusBanner(),
-
-                    // Spatial Awareness Card
                     _buildSpatialAwarenessCard(geofenceReady),
                     const SizedBox(height: 16),
-
-                    // Legal note
                     Text(
                       'Logs and spatial coordinates are securely recorded server-side for institutional compliance. Tampering with session data is prohibited.',
                       textAlign: TextAlign.center,
@@ -258,8 +304,6 @@ class _TimerScreenState extends State<TimerScreen>
     );
   }
 
-  // ── Top Bar ────────────────────────────────────────────────────────
-
   Widget _buildTopBar() {
     final services = AppServices.of(context);
     return Container(
@@ -272,13 +316,14 @@ class _TimerScreenState extends State<TimerScreen>
             child: Container(
               width: 36,
               height: 36,
-              decoration: BoxDecoration(
-                color: const Color(0xFF1A3A6B),
+              decoration: const BoxDecoration(
+                color: Color(0xFF1A3A6B),
                 shape: BoxShape.circle,
               ),
               child: Center(
                 child: Text(
-                  (services.authService.currentUser?.displayName ?? 'I')[0].toUpperCase(),
+                  (services.authService.currentUser?.displayName ?? 'I')[0]
+                      .toUpperCase(),
                   style: GoogleFonts.dmSans(
                     color: Colors.white,
                     fontWeight: FontWeight.w700,
@@ -297,234 +342,198 @@ class _TimerScreenState extends State<TimerScreen>
               color: const Color(0xFF1A3A6B),
             ),
           ),
-          const Spacer(),
-          IconButton(
-            icon: const Icon(Icons.notifications_outlined, color: Color(0xFF1A3A6B)),
-            onPressed: () {},
-          ),
         ],
       ),
     );
   }
-
-  // ── Assignment Card ────────────────────────────────────────────────
 
   Widget _buildAssignmentCard() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(18),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Text(
-            'CURRENT ASSIGNMENT',
-            style: GoogleFonts.dmSans(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1.2,
-              color: Colors.grey[500],
-            ),
-          ),
-          const SizedBox(height: 10),
           Container(
-            width: 40,
-            height: 3,
+            width: 46,
+            height: 46,
             decoration: BoxDecoration(
-              color: const Color(0xFF1A3A6B),
-              borderRadius: BorderRadius.circular(2),
+              color: const Color(0xFFEAF1FB),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(
+              Icons.apartment_rounded,
+              color: Color(0xFF1A3A6B),
             ),
           ),
-          const SizedBox(height: 10),
-          Text(
-            'Task Name',
-            style: GoogleFonts.dmSans(
-              fontSize: 11,
-              color: Colors.grey[500],
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            'Geospatial Data Validation & Analysis',
-            style: GoogleFonts.dmSans(
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-              color: const Color(0xFF0D1B2A),
-              height: 1.3,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── Timer Ring ─────────────────────────────────────────────────────
-
-  Widget _buildTimerRing() {
-    return Center(
-      child: SizedBox(
-        width: 200,
-        height: 200,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            // Animated rotating ring — only when clocked in
-            if (_isClockedIn)
-              AnimatedBuilder(
-                animation: _ringAnimation,
-                builder: (_, __) => CustomPaint(
-                  size: const Size(200, 200),
-                  painter: _RingPainter(progress: _ringAnimation.value),
-                ),
-              )
-            else
-              CustomPaint(
-                size: const Size(200, 200),
-                painter: _StaticRingPainter(),
-              ),
-            // Time display
-            Column(
-              mainAxisSize: MainAxisSize.min,
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (_isLoading)
-                  const SizedBox(
-                    width: 28,
-                    height: 28,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      color: Color(0xFF1A3A6B),
-                    ),
-                  )
-                else
-                  Text(
-                    _formatDuration(_elapsedDuration),
-                    style: GoogleFonts.dmMono(
-                      fontSize: 32,
-                      fontWeight: FontWeight.w700,
-                      color: const Color(0xFF0D1B2A),
-                      letterSpacing: 1,
-                    ),
+                Text(
+                  'Assigned Geofence',
+                  style: GoogleFonts.dmSans(
+                    fontSize: 12,
+                    color: Colors.grey[600],
                   ),
+                ),
                 const SizedBox(height: 4),
                 Text(
-                  _isClockedIn ? 'SESSION ACTIVE' : 'SESSION INACTIVE',
+                  _targetLat != null && _targetLng != null
+                      ? 'Lat ${_targetLat!.toStringAsFixed(5)}, Lng ${_targetLng!.toStringAsFixed(5)}'
+                      : 'No assigned location yet',
                   style: GoogleFonts.dmSans(
-                    fontSize: 10,
+                    fontSize: 14,
                     fontWeight: FontWeight.w700,
-                    letterSpacing: 1.5,
-                    color: _isClockedIn
-                        ? const Color(0xFF1A3A6B)
-                        : Colors.grey[400],
+                    color: const Color(0xFF1A3A6B),
                   ),
                 ),
               ],
             ),
-          ],
-        ),
+          ),
+          if (_allowedRadius != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEAF7EE),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                '${_allowedRadius!.toStringAsFixed(0)}m radius',
+                style: GoogleFonts.dmSans(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: const Color(0xFF2E7D32),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
 
-  // ── Action Buttons ─────────────────────────────────────────────────
+  Widget _buildTimerRing() {
+    return Center(
+      child: AnimatedBuilder(
+        animation: _ringAnimation,
+        builder: (context, _) {
+          return CustomPaint(
+            painter: _RingPainter(
+              progress: _ringAnimation.value,
+              active: _isClockedIn,
+            ),
+            child: SizedBox(
+              width: 240,
+              height: 240,
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _isClockedIn ? 'ON SESSION' : 'READY',
+                      style: GoogleFonts.dmSans(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1.5,
+                        color: _isClockedIn
+                            ? const Color(0xFF2E7D32)
+                            : const Color(0xFF1A3A6B),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      _formatDuration(_elapsedDuration),
+                      style: GoogleFonts.dmSans(
+                        fontSize: 32,
+                        fontWeight: FontWeight.w800,
+                        color: const Color(0xFF111827),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
 
   Widget _buildActionButtons(bool geofenceReady) {
     return Row(
       children: [
-        // Start Session
         Expanded(
-          child: GestureDetector(
-            onTap: (_isLoading || _isClockedIn || !geofenceReady)
-                ? null
-                : _handleStart,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              height: 52,
-              decoration: BoxDecoration(
-                color: (_isClockedIn || !geofenceReady)
-                    ? Colors.grey[200]
-                    : const Color(0xFF1A3A6B),
-                borderRadius: BorderRadius.circular(14),
+          child: SizedBox(
+            height: 52,
+            child: ElevatedButton(
+              onPressed: (_isLoading || !geofenceReady || _isClockedIn)
+                  ? null
+                  : _handleStart,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1A3A6B),
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: Colors.grey[300],
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.play_arrow_rounded,
-                    size: 20,
-                    color: (_isClockedIn || !geofenceReady)
-                        ? Colors.grey[400]
-                        : Colors.white,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Start\nSession',
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.dmSans(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: (_isClockedIn || !geofenceReady)
-                          ? Colors.grey[400]
-                          : Colors.white,
-                      height: 1.2,
+              child: _isLoading && !_isClockedIn
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : Text(
+                      'Start',
+                      style: GoogleFonts.dmSans(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                  ),
-                ],
-              ),
             ),
           ),
         ),
         const SizedBox(width: 12),
-        // Stop Session
         Expanded(
-          child: GestureDetector(
-            onTap: (_isLoading || !_isClockedIn) ? null : _handleStop,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              height: 52,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: _isClockedIn
-                      ? const Color(0xFFDDE1E9)
-                      : Colors.grey[200]!,
+          child: SizedBox(
+            height: 52,
+            child: OutlinedButton(
+              onPressed: (_isLoading || !_isClockedIn) ? null : _handleStop,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFFC62828),
+                side: BorderSide(color: Colors.red.shade200),
+                disabledForegroundColor: Colors.grey[400],
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
                 ),
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.stop_rounded,
-                    size: 20,
-                    color: _isClockedIn
-                        ? const Color(0xFF0D1B2A)
-                        : Colors.grey[300],
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Stop\nSession',
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.dmSans(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: _isClockedIn
-                          ? const Color(0xFF0D1B2A)
-                          : Colors.grey[300],
-                      height: 1.2,
+              child: _isLoading && _isClockedIn
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Text(
+                      'Stop',
+                      style: GoogleFonts.dmSans(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                  ),
-                ],
-              ),
             ),
           ),
         ),
@@ -532,316 +541,190 @@ class _TimerScreenState extends State<TimerScreen>
     );
   }
 
-  // ── Status / Error Banner ──────────────────────────────────────────
-
   Widget _buildStatusBanner() {
     final bool isError = _errorMessage != null;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: isError ? const Color(0xFFFFEBEE) : const Color(0xFFE8F5E9),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              isError ? Icons.error_outline : Icons.check_circle_outline,
-              size: 16,
-              color: isError ? const Color(0xFFC62828) : const Color(0xFF2E7D32),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                isError ? _errorMessage! : _statusMessage!,
-                style: GoogleFonts.dmSans(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: isError ? const Color(0xFFC62828) : const Color(0xFF2E7D32),
-                ),
+    final Color bg =
+        isError ? const Color(0xFFFFEBEE) : const Color(0xFFE8F5E9);
+    final Color fg =
+        isError ? const Color(0xFFC62828) : const Color(0xFF2E7D32);
+    final IconData icon =
+        isError ? Icons.error_outline_rounded : Icons.check_circle_outline;
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: fg),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              _errorMessage ?? _statusMessage ?? '',
+              style: GoogleFonts.dmSans(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: fg,
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
-
-  // ── Spatial Awareness Card ─────────────────────────────────────────
 
   Widget _buildSpatialAwarenessCard(bool geofenceReady) {
     return Container(
-      padding: const EdgeInsets.all(14),
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(18),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Row(
-            children: [
-              Text(
-                '📍 SPATIAL AWARENESS',
-                style: GoogleFonts.dmSans(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.8,
-                  color: Colors.grey[600],
-                ),
-              ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: geofenceReady
-                      ? const Color(0xFFE8F5E9)
-                      : Colors.grey[100],
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  geofenceReady ? 'VERIFIED' : 'PENDING',
-                  style: GoogleFonts.dmSans(
-                    fontSize: 9,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.8,
-                    color: geofenceReady
-                        ? const Color(0xFF2E7D32)
-                        : Colors.grey[500],
-                  ),
-                ),
-              ),
-            ],
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEAF1FB),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(
+              Icons.my_location_rounded,
+              color: Color(0xFF1A3A6B),
+            ),
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              // Map thumbnail
-              Container(
-                width: 72,
-                height: 64,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1A3A6B),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: CustomPaint(
-                  painter: _MiniGridPainter(),
-                  child: Center(
-                    child: Container(
-                      width: 10,
-                      height: 10,
-                      decoration: const BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Color(0xFF4FC3F7),
-                      ),
-                    ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Spatial Awareness',
+                  style: GoogleFonts.dmSans(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF1A3A6B),
                   ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      geofenceReady
-                          ? 'Geofence validation active. Your location is within the Technical Innovation Center designated zone.'
-                          : 'No geofence assigned. Contact your supervisor to enable clock-in.',
-                      style: GoogleFonts.dmSans(
-                        fontSize: 12,
-                        color: Colors.grey[700],
-                        height: 1.4,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        Icon(Icons.gps_fixed, size: 11, color: Colors.grey[400]),
-                        const SizedBox(width: 4),
-                        Text(
-                          geofenceReady
-                              ? 'GPS High Precision Ready'
-                              : 'GPS Ready · Geofence Pending',
-                          style: GoogleFonts.dmSans(
-                            fontSize: 10,
-                            color: Colors.grey[400],
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                const SizedBox(height: 4),
+                Text(
+                  geofenceReady
+                      ? 'Your live device position will be compared against the assigned geofence during attendance actions.'
+                      : 'A supervisor must assign a geofence before attendance actions can proceed.',
+                  style: GoogleFonts.dmSans(
+                    fontSize: 12,
+                    height: 1.5,
+                    color: Colors.grey[600],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 
-  // ── Bottom Nav ─────────────────────────────────────────────────────
-
   Widget _buildBottomNav() {
-    final items = [
-      (Icons.home_rounded, 'HOME'),
-      (Icons.timer_outlined, 'TIMER'),
-      (Icons.table_chart_outlined, 'TIMESHEETS'),
-      (Icons.history_rounded, 'HISTORY'),
-    ];
-
     return Container(
-      decoration: BoxDecoration(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
+      decoration: const BoxDecoration(
         color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            blurRadius: 10,
-            offset: const Offset(0, -2),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: List.generate(items.length, (i) {
-              final active = i == 1; // TIMER is active on this screen
-              return GestureDetector(
-                onTap: () {
-                  if (i == 0) Navigator.pop(context);
-                },
-                behavior: HitTestBehavior.opaque,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        items[i].$1,
-                        size: 22,
-                        color: active ? const Color(0xFF1A3A6B) : Colors.grey[400],
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        items[i].$2,
-                        style: GoogleFonts.dmSans(
-                          fontSize: 9,
-                          fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                          color: active ? const Color(0xFF1A3A6B) : Colors.grey[400],
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }),
-          ),
+        border: Border(
+          top: BorderSide(color: Color(0xFFE9EEF5)),
         ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: const [
+          _NavIcon(icon: Icons.home_rounded, active: false),
+          _NavIcon(icon: Icons.timer_rounded, active: true),
+          _NavIcon(icon: Icons.person_outline_rounded, active: false),
+        ],
       ),
     );
   }
 }
-
-// ── Custom Painters ────────────────────────────────────────────────────
 
 class _RingPainter extends CustomPainter {
   final double progress;
-  _RingPainter({required this.progress});
+  final bool active;
+
+  _RingPainter({
+    required this.progress,
+    required this.active,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2 - 8;
+    final center = size.center(Offset.zero);
+    final radius = math.min(size.width, size.height) / 2;
 
-    // Background ring
-    final bgPaint = Paint()
-      ..color = const Color(0xFFE8EDF7)
+    final basePaint = Paint()
+      ..color = const Color(0xFFE8EDF5)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 6;
-    canvas.drawCircle(center, radius, bgPaint);
-
-    // Animated arc
-    final fgPaint = Paint()
-      ..shader = const SweepGradient(
-        colors: [Color(0xFF1A3A6B), Color(0xFF4FC3F7), Color(0xFF1A3A6B)],
-        stops: [0.0, 0.5, 1.0],
-      ).createShader(Rect.fromCircle(center: center, radius: radius))
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 6
+      ..strokeWidth = 14
       ..strokeCap = StrokeCap.round;
 
-    canvas.drawArc(
-      Rect.fromCircle(center: center, radius: radius),
-      -math.pi / 2 + (progress * 2 * math.pi),
-      math.pi * 1.5,
-      false,
-      fgPaint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(_RingPainter old) => old.progress != progress;
-}
-
-class _StaticRingPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2 - 8;
-
-    final paint = Paint()
-      ..color = const Color(0xFFE8EDF7)
+    final activePaint = Paint()
+      ..color = active ? const Color(0xFF2E7D32) : const Color(0xFF1A3A6B)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 6;
-    canvas.drawCircle(center, radius, paint);
-
-    // Dashed accent
-    final accentPaint = Paint()
-      ..color = const Color(0xFFBDCBE8)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 6
+      ..strokeWidth = 14
       ..strokeCap = StrokeCap.round;
+
+    canvas.drawCircle(center, radius - 14, basePaint);
+
+    final sweep = active ? (2 * math.pi * progress) : (2 * math.pi * 0.18);
     canvas.drawArc(
-      Rect.fromCircle(center: center, radius: radius),
+      Rect.fromCircle(center: center, radius: radius - 14),
       -math.pi / 2,
-      math.pi * 0.4,
+      sweep,
       false,
-      accentPaint,
+      activePaint,
     );
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter old) => false;
+  bool shouldRepaint(covariant _RingPainter oldDelegate) {
+    return oldDelegate.progress != progress || oldDelegate.active != active;
+  }
 }
 
-class _MiniGridPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.white.withOpacity(0.08)
-      ..strokeWidth = 0.8;
-    const step = 10.0;
-    for (double x = 0; x < size.width; x += step) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
-    }
-    for (double y = 0; y < size.height; y += step) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
-    }
-  }
+class _NavIcon extends StatelessWidget {
+  final IconData icon;
+  final bool active;
+
+  const _NavIcon({
+    required this.icon,
+    required this.active,
+  });
 
   @override
-  bool shouldRepaint(covariant CustomPainter old) => false;
+  Widget build(BuildContext context) {
+    return Container(
+      width: 42,
+      height: 42,
+      decoration: BoxDecoration(
+        color: active ? const Color(0xFFEAF1FB) : Colors.transparent,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Icon(
+        icon,
+        color: active ? const Color(0xFF1A3A6B) : Colors.grey,
+      ),
+    );
+  }
 }

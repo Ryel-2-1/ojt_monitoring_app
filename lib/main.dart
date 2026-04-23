@@ -30,6 +30,7 @@ import 'screens/login_screen.dart';
 import 'screens/web_login_screen.dart';
 import 'screens/admin_dashboard_layout.dart';
 import 'screens/access_control_screen.dart';
+import 'repositories/live_location_repository.dart';
 
 const FirebaseOptions _webFirebaseOptions = FirebaseOptions(
   apiKey: 'AIzaSyByaNJZjhXfedXhs-71GjazPYhegb36bBM',
@@ -55,20 +56,23 @@ void main() async {
 
 class AppServices extends InheritedWidget {
   final AuthService authService;
-  final StudentRepository studentRepository;
-  final AttendanceRepository attendanceRepository;
-  final UserRepository userRepository;
-  final RoleRepository roleRepository;
+final StudentRepository studentRepository;
+final AttendanceRepository attendanceRepository;
+final UserRepository userRepository;
+final RoleRepository roleRepository;
+final LiveLocationRepository liveLocationRepository;
+  
 
-  const AppServices({
-    super.key,
-    required this.authService,
-    required this.studentRepository,
-    required this.attendanceRepository,
-    required this.userRepository,
-    required this.roleRepository,
-    required super.child,
-  });
+ const AppServices({
+  super.key,
+  required this.authService,
+  required this.studentRepository,
+  required this.attendanceRepository,
+  required this.userRepository,
+  required this.roleRepository,
+  required this.liveLocationRepository,
+  required super.child,
+});
 
   static AppServices of(BuildContext context) {
     final result = context.dependOnInheritedWidgetOfExactType<AppServices>();
@@ -86,12 +90,13 @@ class OjtApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AppServices(
-      authService: AuthService(),
-      studentRepository: StudentRepository(),
-      attendanceRepository: AttendanceRepository(),
-      userRepository: UserRepository(),
-      roleRepository: RoleRepository(),
-      child: MaterialApp(
+  authService: AuthService(),
+  studentRepository: StudentRepository(),
+  attendanceRepository: AttendanceRepository(),
+  userRepository: UserRepository(),
+  roleRepository: RoleRepository(),
+  liveLocationRepository: LiveLocationRepository(),
+  child: MaterialApp(
         title: 'GeoAI OJT Monitoring System',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
