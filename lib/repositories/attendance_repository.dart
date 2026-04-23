@@ -13,6 +13,38 @@ class AttendanceRepository {
   // ─────────────────────────────────────────────
   // LOG ATTENDANCE (Clock-In / Clock-Out)
   // ─────────────────────────────────────────────
+
+  Stream<Map<String, AttendanceModel>> streamLatestLogsByUser() {
+  return _firestoreService
+      .collection(_collection)
+      .orderBy('timestamp', descending: true)
+      .snapshots()
+      .map((snapshot) {
+    final Map<String, AttendanceModel> latestByUser = {};
+
+    for (final doc in snapshot.docs) {
+      final model = AttendanceModel.fromMap(doc.data(), id: doc.id);
+
+      // Since docs are already ordered DESC by timestamp,
+      // the first log we see for a uid is the latest one.
+      latestByUser.putIfAbsent(model.uid, () => model);
+    }
+
+    return latestByUser;
+  });
+}
+
+Stream<List<AttendanceModel>> streamAllAttendanceLogs() {
+  return _firestoreService
+      .collection(_collection)
+      .orderBy('timestamp', descending: true)
+      .snapshots()
+      .map((snapshot) {
+    return snapshot.docs
+        .map((doc) => AttendanceModel.fromMap(doc.data(), id: doc.id))
+        .toList();
+  });
+}
   Future<String> logAttendance({
     required String uid,
     required AttendanceStatus status,

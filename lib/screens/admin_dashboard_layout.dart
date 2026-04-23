@@ -1,15 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+
 import 'access_control_screen.dart';
+import 'user_management_screen.dart';
+import 'live_monitoring_screen.dart';
+import 'system_logs_screen.dart';
+import 'time_requests_screen.dart';
 
 class AdminDashboardLayout extends StatefulWidget {
-  final Widget child; 
-  final String activeRoute; 
+  final String activeRoute;
+  final Widget? child;
 
   const AdminDashboardLayout({
     super.key,
-    required this.child,
     this.activeRoute = 'Access Control',
+    this.child,
   });
 
   @override
@@ -17,13 +22,20 @@ class AdminDashboardLayout extends StatefulWidget {
 }
 
 class _AdminDashboardLayoutState extends State<AdminDashboardLayout> {
+  late String _activeRoute;
+
+  @override
+  void initState() {
+    super.initState();
+    _activeRoute = widget.activeRoute;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF4F7F9),
       body: Row(
         children: [
-          // LEFT SIDEBAR
           Container(
             width: 260,
             color: const Color(0xFFF0F4F8),
@@ -32,20 +44,19 @@ class _AdminDashboardLayoutState extends State<AdminDashboardLayout> {
               children: [
                 _buildSidebarHeader(),
                 const SizedBox(height: 24),
-                // Navigation Links
                 Expanded(
                   child: ListView(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     children: [
                       _buildNavItem(Icons.radar_outlined, 'Live Monitoring'),
-                      _buildNavItem(Icons.people_alt_outlined, 'Student Directory'),
+                      _buildNavItem(Icons.people_alt_outlined, 'User Management'),
+                      _buildNavItem(Icons.schedule_outlined, 'Time Requests'),
                       _buildNavItem(Icons.admin_panel_settings, 'Access Control'),
                       _buildNavItem(Icons.analytics_outlined, 'Geo-Analytics'),
                       _buildNavItem(Icons.history, 'System Logs'),
                     ],
                   ),
                 ),
-                // Footer Links
                 Padding(
                   padding: const EdgeInsets.all(16.0),
                   child: Column(
@@ -60,13 +71,86 @@ class _AdminDashboardLayoutState extends State<AdminDashboardLayout> {
               ],
             ),
           ),
-          
-          // MAIN CONTENT AREA (Right Side)
-         Expanded(
-  child: widget.child,
-
-),
+          Expanded(
+            child: _buildCurrentPage(),
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildCurrentPage() {
+    if (widget.child != null) {
+      return widget.child!;
+    }
+
+    switch (_activeRoute) {
+      case 'Live Monitoring':
+        return const LiveMonitoringScreen();
+      case 'User Management':
+        return const UserManagementScreen();
+      case 'Time Requests':
+        return const TimeRequestsScreen();
+      case 'Access Control':
+        return const AccessControlScreen();
+      case 'Geo-Analytics':
+        return _buildPlaceholderPage(
+          title: 'Geo-Analytics',
+          subtitle: 'This page will display geospatial analysis and insights.',
+        );
+      case 'System Logs':
+        return const SystemLogsScreen();
+      default:
+        return const AccessControlScreen();
+    }
+  }
+
+  Widget _buildPlaceholderPage({
+    required String title,
+    required String subtitle,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.all(32),
+      child: Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.03),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.dashboard_customize_outlined,
+                  size: 42, color: Colors.grey[500]),
+              const SizedBox(height: 16),
+              Text(
+                title,
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w800,
+                  color: const Color(0xFF0A2351),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                subtitle,
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 13,
+                  color: Colors.grey[600],
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -82,7 +166,7 @@ class _AdminDashboardLayoutState extends State<AdminDashboardLayout> {
             style: GoogleFonts.plusJakartaSans(
               fontSize: 16,
               fontWeight: FontWeight.w800,
-              color: const Color(0xFF0A2351), 
+              color: const Color(0xFF0A2351),
             ),
           ),
           const SizedBox(height: 4),
@@ -99,77 +183,75 @@ class _AdminDashboardLayoutState extends State<AdminDashboardLayout> {
   }
 
   Widget _buildNavItem(IconData icon, String title) {
-    final isActive = widget.activeRoute == title;
-    
+    final isActive = _activeRoute == title;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
-        color: isActive ? Colors.white : Colors.transparent,
-        borderRadius: BorderRadius.circular(8),
-        boxShadow: isActive
-            ? [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                )
-              ]
-            : [],
+        color: isActive ? const Color(0xFF0D4DB3) : Colors.transparent,
+        borderRadius: BorderRadius.circular(12),
       ),
       child: ListTile(
         leading: Icon(
           icon,
-          size: 20,
-          color: isActive ? const Color(0xFF0A2351) : Colors.grey[600],
+          color: isActive ? Colors.white : const Color(0xFF0A2351),
         ),
         title: Text(
           title,
           style: GoogleFonts.plusJakartaSans(
             fontSize: 13,
-            fontWeight: isActive ? FontWeight.w700 : FontWeight.w600,
-            color: isActive ? const Color(0xFF0A2351) : Colors.grey[600],
+            fontWeight: FontWeight.w700,
+            color: isActive ? Colors.white : const Color(0xFF0A2351),
           ),
         ),
-        onTap: () {},
+        onTap: () {
+          setState(() => _activeRoute = title);
+        },
       ),
     );
   }
 
   Widget _buildFooterItem(IconData icon, String title) {
     return ListTile(
-      leading: Icon(icon, size: 18, color: Colors.grey[600]),
+      dense: true,
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(icon, size: 18, color: Colors.grey[700]),
       title: Text(
         title,
         style: GoogleFonts.plusJakartaSans(
           fontSize: 12,
-          fontWeight: FontWeight.w600,
-          color: Colors.grey[600],
+          color: Colors.grey[700],
         ),
       ),
-      dense: true,
-      visualDensity: VisualDensity.compact,
       onTap: () {},
     );
   }
 
   Widget _buildUserProfile() {
-    return Row(
-      children: [
-        const CircleAvatar(
-          radius: 16,
-          backgroundColor: Color(0xFF0A2351),
-          child: Icon(Icons.person, size: 18, color: Colors.white),
-        ),
-        const SizedBox(width: 12),
-        Text(
-          'Admin User',
-          style: GoogleFonts.plusJakartaSans(
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            color: const Color(0xFF0A2351),
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          const CircleAvatar(
+            radius: 18,
+            child: Icon(Icons.person),
           ),
-        ),
-      ],
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Supervisor',
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

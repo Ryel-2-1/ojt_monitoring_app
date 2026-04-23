@@ -145,4 +145,32 @@ class UserRepository {
       radiusInMeters: user.allowedRadius!,
     );
   }
+
+  Stream<List<UserModel>> streamInternUsers() {
+  return _firestoreService
+      .streamCollection(
+        path: _collection,
+        field: 'role',
+        value: UserRole.intern.value,
+        orderBy: 'fullName',
+      )
+      .map(
+        (rows) => rows.map((row) => UserModel.fromMap(row, id: row['id'])).toList(),
+      );
+}
+
+Future<List<UserModel>> getInternUsers() async {
+  try {
+    final rows = await _firestoreService.queryCollection(
+      path: _collection,
+      field: 'role',
+      value: UserRole.intern.value,
+      orderBy: 'fullName',
+    );
+
+    return rows.map((row) => UserModel.fromMap(row, id: row['id'])).toList();
+  } catch (e) {
+    throw Exception('Failed to fetch intern users: $e');
+  }
+}
 }

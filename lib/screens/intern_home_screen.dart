@@ -9,6 +9,7 @@ import '../models/attendance_model.dart';
 import '../repositories/attendance_repository.dart';
 import '../utils/weekly_stats_calculator.dart';
 import 'timer_screen.dart';
+import 'time_request_screen.dart';
 
 class InternHomeScreen extends StatefulWidget {
   const InternHomeScreen({super.key});
@@ -117,6 +118,75 @@ class _InternHomeScreenState extends State<InternHomeScreen> {
     return '$hour:${dt.minute.toString().padLeft(2, '0')} $period';
   }
 
+Future<void> _handleSignOut() async {
+  final shouldSignOut = await showDialog<bool>(
+    context: context,
+    builder: (context) {
+      return AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        title: Text(
+          'Sign out?',
+          style: GoogleFonts.dmSans(
+            fontWeight: FontWeight.w700,
+            color: const Color(0xFF0D1B2A),
+          ),
+        ),
+        content: Text(
+          'You will be returned to the login screen.',
+          style: GoogleFonts.dmSans(
+            fontSize: 13,
+            color: Colors.grey[700],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(
+              'Cancel',
+              style: GoogleFonts.dmSans(
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[700],
+              ),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF1A3A6B),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            child: Text(
+              'Sign Out',
+              style: GoogleFonts.dmSans(fontWeight: FontWeight.w700),
+            ),
+          ),
+     
+        ],
+      );
+    },
+  );
+
+  if (shouldSignOut != true || !mounted) return;
+
+  try {
+    await AppServices.of(context).authService.signOut();
+  } catch (_) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Failed to sign out. Please try again.',
+          style: GoogleFonts.dmSans(fontSize: 13),
+        ),
+      ),
+    );
+  }
+}
   // ── Build ──────────────────────────────────────────────────────────
 
   @override
@@ -160,7 +230,9 @@ class _InternHomeScreenState extends State<InternHomeScreen> {
 
                     // Go to Timer CTA
                     _buildGoToTimerButton(context),
-                    const SizedBox(height: 12),
+const SizedBox(height: 12),
+_buildTimeRequestButton(context),
+const SizedBox(height: 12),
 
                     // Disclaimer
                     Text(
@@ -220,10 +292,10 @@ class _InternHomeScreenState extends State<InternHomeScreen> {
             ),
           ),
           const Spacer(),
-          IconButton(
-            icon: const Icon(Icons.notifications_outlined, color: Color(0xFF1A3A6B)),
-            onPressed: () {},
-          ),
+IconButton(
+  icon: const Icon(Icons.logout_rounded, color: Color(0xFF1A3A6B)),
+  onPressed: _handleSignOut,
+),
         ],
       ),
     );
@@ -580,6 +652,33 @@ class _InternHomeScreenState extends State<InternHomeScreen> {
     );
   }
 
+Widget _buildTimeRequestButton(BuildContext context) {
+  return SizedBox(
+    width: double.infinity,
+    height: 52,
+    child: OutlinedButton.icon(
+      onPressed: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const TimeRequestScreen()),
+      ),
+      icon: const Icon(Icons.edit_calendar_outlined, size: 20),
+      label: Text(
+        'Request Time Adjustment',
+        style: GoogleFonts.dmSans(
+          fontSize: 15,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: const Color(0xFF1A3A6B),
+        side: const BorderSide(color: Color(0xFF1A3A6B), width: 1.4),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+        ),
+      ),
+    ),
+  );
+}
   // ── Error Banner ───────────────────────────────────────────────────
 
   Widget _buildErrorBanner() {

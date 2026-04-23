@@ -2,9 +2,8 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:google_fonts/google_fonts.dart';
-
+import 'package:geolocator/geolocator.dart';
 import '../main.dart';
 import '../models/attendance_model.dart';
 import '../models/geofence_settings.dart';
@@ -16,6 +15,7 @@ class TimerScreen extends StatefulWidget {
   @override
   State<TimerScreen> createState() => _TimerScreenState();
 }
+
 
 class _TimerScreenState extends State<TimerScreen>
     with TickerProviderStateMixin {
@@ -35,11 +35,10 @@ class _TimerScreenState extends State<TimerScreen>
   Duration _elapsedDuration = Duration.zero;
   DateTime? _clockInTime;
 
-  StreamSubscription<Position>? _positionStreamSub;
-
   late AnimationController _ringController;
   late Animation<double> _ringAnimation;
 
+ StreamSubscription<Position>? _positionStreamSub;
   @override
   void initState() {
     super.initState();
@@ -60,15 +59,15 @@ class _TimerScreenState extends State<TimerScreen>
 
     final attendanceRepo = AppServices.of(context).attendanceRepository;
     _locationService =
-    app_location.LocationService(attendanceRepository: attendanceRepo);
+        app_location.LocationService(attendanceRepository: attendanceRepo);
     _initializeFlow();
   }
 
   @override
   void dispose() {
     _liveTimer?.cancel();
-    _positionStreamSub?.cancel();
     _ringController.dispose();
+    _positionStreamSub?.cancel();
     super.dispose();
   }
 
@@ -87,11 +86,11 @@ class _TimerScreenState extends State<TimerScreen>
       bool alreadyClockedIn = false;
 
       if (logs.isNotEmpty && logs.first.status == AttendanceStatus.clockIn) {
-        alreadyClockedIn = true;
-        _clockInTime = logs.first.timestamp;
-        _startTimer(_clockInTime!);
-        await _startLiveTracking();
-      }
+  alreadyClockedIn = true;
+  _clockInTime = logs.first.timestamp;
+  _startTimer(_clockInTime!);
+  await _startLiveTracking();
+}
 
       if (mounted) {
         setState(() {
@@ -128,51 +127,75 @@ class _TimerScreenState extends State<TimerScreen>
       });
     }
   }
+Future<void> _startLiveTracking() async {
+  final services = AppServices.of(context);
+  final currentUser = services.authService.currentUser;
+  if (currentUser == null) return;
 
-  Future<void> _startLiveTracking() async {
-    final services = AppServices.of(context);
-    final currentUser = services.authService.currentUser;
-    if (currentUser == null) return;
+  await _positionStreamSub?.cancel();
 
-    await _positionStreamSub?.cancel();
+  try {
+    final firstPosition = await Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
+    );
 
-    _positionStreamSub = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 10,
-      ),
-    ).listen((Position position) async {
-      try {
-        await services.liveLocationRepository.upsertLiveLocation(
-          uid: currentUser.uid,
-          fullName: currentUser.displayName ?? 'Intern',
-          email: currentUser.email ?? '',
-          latitude: position.latitude,
-          longitude: position.longitude,
-          accuracy: position.accuracy,
-          isClockedIn: true,
-          lastStatus: 'Clock-In',
-        );
-      } catch (_) {
-        // Do not interrupt UI if live tracking write fails.
-      }
-    });
+    await services.liveLocationRepository.upsertLiveLocation(
+      uid: currentUser.uid,
+      fullName: currentUser.displayName ?? 'Intern',
+      email: currentUser.email ?? '',
+      latitude: firstPosition.latitude,
+      longitude: firstPosition.longitude,
+      accuracy: firstPosition.accuracy,
+      isClockedIn: true,
+      lastStatus: 'Clock-In',
+    );
+  } catch (e) {
+  debugPrint('Initial live location write failed: $e');
+  if (mounted) {
+    _showError('Initial live location write failed: $e');
   }
+}
 
-  Future<void> _stopLiveTracking() async {
-    await _positionStreamSub?.cancel();
-    _positionStreamSub = null;
-
+  _positionStreamSub = Geolocator.getPositionStream(
+    locationSettings: const LocationSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: 10,
+    ),
+  ).listen((Position position) async {
     try {
-      final uid = AppServices.of(context).authService.currentUser?.uid;
-      if (uid != null) {
-        await AppServices.of(context).liveLocationRepository.setClockedOut(uid);
-      }
-    } catch (_) {
-      // Do not block clock-out if cleanup fails.
+      await services.liveLocationRepository.upsertLiveLocation(
+        uid: currentUser.uid,
+        fullName: currentUser.displayName ?? 'Intern',
+        email: currentUser.email ?? '',
+        latitude: position.latitude,
+        longitude: position.longitude,
+        accuracy: position.accuracy,
+        isClockedIn: true,
+        lastStatus: 'Clock-In',
+      );
+    } catch (e) {
+      debugPrint('Live tracking update failed: $e');
     }
-  }
+  });
+}
 
+
+Future<void> _stopLiveTracking() async {
+  await _positionStreamSub?.cancel();
+  _positionStreamSub = null;
+
+  try {
+    final uid = AppServices.of(context).authService.currentUser?.uid;
+    if (uid != null) {
+      await AppServices.of(context).liveLocationRepository.setClockedOut(uid);
+    }
+  } catch (e) {
+  debugPrint('Live tracking update failed: $e');
+  if (mounted) {
+    _showError('Live tracking update failed: $e');
+  }
+}
+}
   String _formatDuration(Duration d) {
     String pad(int n) => n.toString().padLeft(2, '0');
     return '${pad(d.inHours)}:${pad(d.inMinutes.remainder(60))}:${pad(d.inSeconds.remainder(60))}';
@@ -183,10 +206,40 @@ class _TimerScreenState extends State<TimerScreen>
     await _handleClockInOut(AttendanceStatus.clockIn);
   }
 
-  Future<void> _handleStop() async {
-    if (!_isClockedIn) return;
-    await _handleClockInOut(AttendanceStatus.clockOut);
+ Future<void> _handleStop() async {
+  if (!_isClockedIn) return;
+
+  setState(() {
+    _isLoading = true;
+    _errorMessage = null;
+    _statusMessage = 'Logging clock-out...';
+  });
+
+  try {
+    final services = AppServices.of(context);
+    final uid = services.authService.currentUser!.uid;
+
+    await services.attendanceRepository.logAttendance(
+      uid: uid,
+      status: AttendanceStatus.clockOut,
+    );
+
+    await _stopLiveTracking();
+
+    if (!mounted) return;
+
+    setState(() {
+      _isClockedIn = false;
+      _statusMessage = 'Clock-Out logged successfully.';
+      _isLoading = false;
+    });
+
+    _stopTimer();
+  } catch (e) {
+    if (!mounted) return;
+    _showError('Clock-out failed: $e');
   }
+}
 
   Future<void> _handleClockInOut(AttendanceStatus status) async {
     if (_targetLat == null || _targetLng == null) {
@@ -222,14 +275,13 @@ class _TimerScreenState extends State<TimerScreen>
         _isLoading = false;
       });
 
-      if (nowClockedIn) {
-        _clockInTime = confirmedAt;
-        _startTimer(confirmedAt);
-        await _startLiveTracking();
-      } else {
-        await _stopLiveTracking();
-        _stopTimer();
-      }
+     if (nowClockedIn) {
+  _clockInTime = confirmedAt;
+  _startTimer(confirmedAt);
+  await _startLiveTracking();
+} else {
+  _stopTimer();
+}
     } on app_location.OutsideGeofenceException catch (e) {
       if (mounted) {
         _showError(e.toString());
@@ -242,11 +294,11 @@ class _TimerScreenState extends State<TimerScreen>
       if (mounted) {
         _showError(e.toString());
       }
-    } catch (_) {
-      if (mounted) {
-        _showError('An unexpected error occurred. Please try again.');
-      }
-    }
+    } catch (e) {
+  if (mounted) {
+    _showError('Clock action failed: $e');
+  }
+}
   }
 
   void _showError(String message) {
@@ -638,25 +690,82 @@ class _TimerScreenState extends State<TimerScreen>
     );
   }
 
-  Widget _buildBottomNav() {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(
-          top: BorderSide(color: Color(0xFFE9EEF5)),
-        ),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: const [
-          _NavIcon(icon: Icons.home_rounded, active: false),
-          _NavIcon(icon: Icons.timer_rounded, active: true),
-          _NavIcon(icon: Icons.person_outline_rounded, active: false),
-        ],
-      ),
-    );
+
+  void _handleBottomNavTap(int index) {
+  if (index == 0) {
+    Navigator.pop(context);
+    return;
   }
+
+  if (index == 1) {
+    return;
+  }
+
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(
+        'Profile page is not wired yet.',
+        style: GoogleFonts.dmSans(fontSize: 13),
+      ),
+    ),
+  );
+}
+ Widget _buildBottomNav() {
+  final items = <(IconData, String)>[
+    (Icons.home_rounded, 'Home'),
+    (Icons.timer_rounded, 'Timer'),
+    (Icons.person_outline_rounded, 'Profile'),
+  ];
+
+  return Container(
+    padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
+    decoration: const BoxDecoration(
+      color: Colors.white,
+      border: Border(
+        top: BorderSide(color: Color(0xFFE9EEF5)),
+      ),
+    ),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.spaceAround,
+      children: List.generate(items.length, (i) {
+        final active = i == 1;
+
+        return GestureDetector(
+          onTap: () => _handleBottomNavTap(i),
+          behavior: HitTestBehavior.opaque,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  items[i].$1,
+                  size: 22,
+                  color: active
+                      ? const Color(0xFF1A3A6B)
+                      : Colors.grey[400],
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  items[i].$2,
+                  style: GoogleFonts.dmSans(
+                    fontSize: 9,
+                    fontWeight:
+                        active ? FontWeight.w700 : FontWeight.w500,
+                    color: active
+                        ? const Color(0xFF1A3A6B)
+                        : Colors.grey[400],
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }),
+    ),
+  );
+}
 }
 
 class _RingPainter extends CustomPainter {

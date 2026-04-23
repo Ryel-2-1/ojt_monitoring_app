@@ -29,8 +29,9 @@ import 'repositories/role_repository.dart';
 import 'screens/login_screen.dart';
 import 'screens/web_login_screen.dart';
 import 'screens/admin_dashboard_layout.dart';
-import 'screens/access_control_screen.dart';
+
 import 'repositories/live_location_repository.dart';
+import 'repositories/time_request_repository.dart';
 
 const FirebaseOptions _webFirebaseOptions = FirebaseOptions(
   apiKey: 'AIzaSyByaNJZjhXfedXhs-71GjazPYhegb36bBM',
@@ -61,6 +62,7 @@ final AttendanceRepository attendanceRepository;
 final UserRepository userRepository;
 final RoleRepository roleRepository;
 final LiveLocationRepository liveLocationRepository;
+final TimeRequestRepository timeRequestRepository;
   
 
  const AppServices({
@@ -71,6 +73,7 @@ final LiveLocationRepository liveLocationRepository;
   required this.userRepository,
   required this.roleRepository,
   required this.liveLocationRepository,
+  required this.timeRequestRepository,
   required super.child,
 });
 
@@ -96,6 +99,7 @@ class OjtApp extends StatelessWidget {
   userRepository: UserRepository(),
   roleRepository: RoleRepository(),
   liveLocationRepository: LiveLocationRepository(),
+  timeRequestRepository: TimeRequestRepository(),
   child: MaterialApp(
         title: 'GeoAI OJT Monitoring System',
         debugShowCheckedModeBanner: false,
@@ -180,7 +184,7 @@ class AuthGate extends StatelessWidget {
 
             if (kIsWeb && role == UserRole.supervisor) {
               return const AdminDashboardLayout(
-                child: AccessControlScreen(),
+                activeRoute: 'Live Monitoring',
               );
             }
 

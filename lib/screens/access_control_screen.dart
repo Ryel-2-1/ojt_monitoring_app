@@ -300,7 +300,7 @@ class _AccessControlScreenState extends State<AccessControlScreen> {
             const SizedBox(height: 4),
             Switch(
               value: value,
-              activeColor: const Color(0xFF0A2351),
+              activeThumbColor: const Color(0xFF0A2351),
               onChanged: (newValue) async {
                 final roleRepo = AppServices.of(context).roleRepository;
                 try {

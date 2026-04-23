@@ -1,4 +1,4 @@
-// lib/models/user_model.dart
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 enum UserRole { intern, supervisor }
 
@@ -24,11 +24,16 @@ class UserModel {
   final String email;
   final String fullName;
   final UserRole role;
-  
-  // Geolocation Fields (Nullable because new users won't have them yet)
+
   final double? assignedLatitude;
   final double? assignedLongitude;
   final double? allowedRadius;
+
+  final String? companyName;
+  final String? companyAddress;
+  final int? requiredOjtHours;
+  final DateTime? internshipStartDate;
+  final DateTime? internshipEndDate;
 
   UserModel({
     required this.uid,
@@ -38,17 +43,30 @@ class UserModel {
     this.assignedLatitude,
     this.assignedLongitude,
     this.allowedRadius,
+    this.companyName,
+    this.companyAddress,
+    this.requiredOjtHours,
+    this.internshipStartDate,
+    this.internshipEndDate,
   });
 
   factory UserModel.fromMap(Map<String, dynamic> map, {String? id}) {
+    final rawStartDate = map['internshipStartDate'];
+    final rawEndDate = map['internshipEndDate'];
+
     return UserModel(
       uid: id ?? map['uid'] ?? '',
       email: map['email'] ?? '',
       fullName: map['fullName'] ?? '',
       role: UserRoleExtension.fromString(map['role']) ?? UserRole.intern,
-      assignedLatitude: map['assignedLatitude']?.toDouble(),
-      assignedLongitude: map['assignedLongitude']?.toDouble(),
-      allowedRadius: map['allowedRadius']?.toDouble(),
+      assignedLatitude: (map['assignedLatitude'] as num?)?.toDouble(),
+      assignedLongitude: (map['assignedLongitude'] as num?)?.toDouble(),
+      allowedRadius: (map['allowedRadius'] as num?)?.toDouble(),
+      companyName: map['companyName'],
+      companyAddress: map['companyAddress'],
+      requiredOjtHours: (map['requiredOjtHours'] as num?)?.toInt(),
+      internshipStartDate: rawStartDate is Timestamp ? rawStartDate.toDate() : null,
+      internshipEndDate: rawEndDate is Timestamp ? rawEndDate.toDate() : null,
     );
   }
 
@@ -61,6 +79,13 @@ class UserModel {
       'assignedLatitude': assignedLatitude,
       'assignedLongitude': assignedLongitude,
       'allowedRadius': allowedRadius,
+      'companyName': companyName,
+      'companyAddress': companyAddress,
+      'requiredOjtHours': requiredOjtHours,
+      'internshipStartDate':
+          internshipStartDate != null ? Timestamp.fromDate(internshipStartDate!) : null,
+      'internshipEndDate':
+          internshipEndDate != null ? Timestamp.fromDate(internshipEndDate!) : null,
     };
   }
 }
