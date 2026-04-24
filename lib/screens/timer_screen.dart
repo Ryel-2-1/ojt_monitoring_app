@@ -1,13 +1,16 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:google_fonts/google_fonts.dart';
+
 import '../main.dart';
 import '../models/attendance_model.dart';
-import '../models/geofence_settings.dart';
 import '../services/location_service.dart' as app_location;
+import 'intern_home_screen.dart';
+import 'timesheet_screen.dart';
 
 class TimerScreen extends StatefulWidget {
   const TimerScreen({super.key});
@@ -15,7 +18,6 @@ class TimerScreen extends StatefulWidget {
   @override
   State<TimerScreen> createState() => _TimerScreenState();
 }
-
 
 class _TimerScreenState extends State<TimerScreen>
     with TickerProviderStateMixin {
@@ -38,7 +40,16 @@ class _TimerScreenState extends State<TimerScreen>
   late AnimationController _ringController;
   late Animation<double> _ringAnimation;
 
- StreamSubscription<Position>? _positionStreamSub;
+  StreamSubscription<Position>? _positionStreamSub;
+
+  bool _isAutoStopping = false;
+  bool _hasExitedGeofence = false;
+
+  int? _requiredOjtHours;
+  double _completedOjtHours = 0;
+
+  int _selectedNavIndex = 1;
+
   @override
   void initState() {
     super.initState();
@@ -82,15 +93,22 @@ class _TimerScreenState extends State<TimerScreen>
       _targetLng = geofence.longitude;
       _allowedRadius = geofence.radiusInMeters;
 
+      final user = await services.userRepository.getUserByUid(uid);
+      final allLogs =
+          await services.attendanceRepository.getAttendanceByStudent(uid);
+
+      _requiredOjtHours = user?.requiredOjtHours ?? 0;
+      _completedOjtHours = _calculateCompletedHours(allLogs);
+
       final logs = await services.attendanceRepository.getTodayAttendance(uid);
       bool alreadyClockedIn = false;
 
       if (logs.isNotEmpty && logs.first.status == AttendanceStatus.clockIn) {
-  alreadyClockedIn = true;
-  _clockInTime = logs.first.timestamp;
-  _startTimer(_clockInTime!);
-  await _startLiveTracking();
-}
+        alreadyClockedIn = true;
+        _clockInTime = logs.first.timestamp;
+        _startTimer(_clockInTime!);
+        await _startLiveTracking();
+      }
 
       if (mounted) {
         setState(() {
@@ -98,13 +116,44 @@ class _TimerScreenState extends State<TimerScreen>
           _isLoading = false;
         });
       }
-    } on GeofenceNotAssignedException catch (e) {
-      if (mounted) _showError(e.message);
     } catch (_) {
       if (mounted) {
         _showError('Failed to load. Please go back and try again.');
       }
     }
+  }
+
+  double _calculateCompletedHours(List<AttendanceModel> logs) {
+    final sorted = [...logs]..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+
+    double totalHours = 0;
+    DateTime? lastClockIn;
+
+    for (final log in sorted) {
+      if (log.status == AttendanceStatus.clockIn) {
+        lastClockIn = log.timestamp;
+      } else if (log.status == AttendanceStatus.clockOut &&
+          lastClockIn != null) {
+        totalHours += log.timestamp.difference(lastClockIn).inMinutes / 60.0;
+        lastClockIn = null;
+      }
+    }
+
+    return totalHours;
+  }
+
+  Future<void> _refreshCompletedHours() async {
+    final services = AppServices.of(context);
+    final uid = services.authService.currentUser?.uid;
+    if (uid == null) return;
+
+    final allLogs =
+        await services.attendanceRepository.getAttendanceByStudent(uid);
+
+    if (!mounted) return;
+    setState(() {
+      _completedOjtHours = _calculateCompletedHours(allLogs);
+    });
   }
 
   void _startTimer(DateTime startTime) {
@@ -127,75 +176,92 @@ class _TimerScreenState extends State<TimerScreen>
       });
     }
   }
-Future<void> _startLiveTracking() async {
-  final services = AppServices.of(context);
-  final currentUser = services.authService.currentUser;
-  if (currentUser == null) return;
 
-  await _positionStreamSub?.cancel();
-
-  try {
-    final firstPosition = await Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.high,
-    );
-
-    await services.liveLocationRepository.upsertLiveLocation(
-      uid: currentUser.uid,
-      fullName: currentUser.displayName ?? 'Intern',
-      email: currentUser.email ?? '',
-      latitude: firstPosition.latitude,
-      longitude: firstPosition.longitude,
-      accuracy: firstPosition.accuracy,
-      isClockedIn: true,
-      lastStatus: 'Clock-In',
-    );
-  } catch (e) {
-  debugPrint('Initial live location write failed: $e');
-  if (mounted) {
-    _showError('Initial live location write failed: $e');
+  double _distanceMeters(
+    double lat1,
+    double lng1,
+    double lat2,
+    double lng2,
+  ) {
+    return Geolocator.distanceBetween(lat1, lng1, lat2, lng2);
   }
-}
 
-  _positionStreamSub = Geolocator.getPositionStream(
-    locationSettings: const LocationSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 10,
-    ),
-  ).listen((Position position) async {
+  Future<void> _startLiveTracking() async {
+    final services = AppServices.of(context);
+    final currentUser = services.authService.currentUser;
+    if (currentUser == null) return;
+
+    _hasExitedGeofence = false;
+    await _positionStreamSub?.cancel();
+
     try {
+      final firstPosition = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
       await services.liveLocationRepository.upsertLiveLocation(
         uid: currentUser.uid,
         fullName: currentUser.displayName ?? 'Intern',
         email: currentUser.email ?? '',
-        latitude: position.latitude,
-        longitude: position.longitude,
-        accuracy: position.accuracy,
+        latitude: firstPosition.latitude,
+        longitude: firstPosition.longitude,
+        accuracy: firstPosition.accuracy,
         isClockedIn: true,
         lastStatus: 'Clock-In',
       );
     } catch (e) {
-      debugPrint('Live tracking update failed: $e');
+      debugPrint('Initial live location write failed: $e');
+      if (mounted) {
+        _showError('Initial live location write failed: $e');
+      }
     }
-  });
-}
 
+    _positionStreamSub = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 10,
+      ),
+    ).listen((Position position) async {
+      try {
+        await services.liveLocationRepository.upsertLiveLocation(
+          uid: currentUser.uid,
+          fullName: currentUser.displayName ?? 'Intern',
+          email: currentUser.email ?? '',
+          latitude: position.latitude,
+          longitude: position.longitude,
+          accuracy: position.accuracy,
+          isClockedIn: true,
+          lastStatus: 'Clock-In',
+        );
 
-Future<void> _stopLiveTracking() async {
-  await _positionStreamSub?.cancel();
-  _positionStreamSub = null;
+        if (_isClockedIn &&
+            !_isAutoStopping &&
+            _targetLat != null &&
+            _targetLng != null &&
+            _allowedRadius != null) {
+          final distance = _distanceMeters(
+            position.latitude,
+            position.longitude,
+            _targetLat!,
+            _targetLng!,
+          );
 
-  try {
-    final uid = AppServices.of(context).authService.currentUser?.uid;
-    if (uid != null) {
-      await AppServices.of(context).liveLocationRepository.setClockedOut(uid);
-    }
-  } catch (e) {
-  debugPrint('Live tracking update failed: $e');
-  if (mounted) {
-    _showError('Live tracking update failed: $e');
+          if (distance > _allowedRadius! && !_hasExitedGeofence) {
+            _hasExitedGeofence = true;
+            await _handleAutoStop(position);
+          }
+        }
+      } catch (e) {
+        debugPrint('Live tracking update failed: $e');
+      }
+    });
   }
-}
-}
+
+  Future<void> _stopLiveTracking() async {
+    await _positionStreamSub?.cancel();
+    _positionStreamSub = null;
+  }
+
   String _formatDuration(Duration d) {
     String pad(int n) => n.toString().padLeft(2, '0');
     return '${pad(d.inHours)}:${pad(d.inMinutes.remainder(60))}:${pad(d.inSeconds.remainder(60))}';
@@ -206,40 +272,113 @@ Future<void> _stopLiveTracking() async {
     await _handleClockInOut(AttendanceStatus.clockIn);
   }
 
- Future<void> _handleStop() async {
-  if (!_isClockedIn) return;
-
-  setState(() {
-    _isLoading = true;
-    _errorMessage = null;
-    _statusMessage = 'Logging clock-out...';
-  });
-
-  try {
-    final services = AppServices.of(context);
-    final uid = services.authService.currentUser!.uid;
-
-    await services.attendanceRepository.logAttendance(
-      uid: uid,
-      status: AttendanceStatus.clockOut,
-    );
-
-    await _stopLiveTracking();
-
-    if (!mounted) return;
+  Future<void> _handleStop() async {
+    if (!_isClockedIn) return;
 
     setState(() {
-      _isClockedIn = false;
-      _statusMessage = 'Clock-Out logged successfully.';
-      _isLoading = false;
+      _isLoading = true;
+      _errorMessage = null;
+      _statusMessage = 'Logging clock-out...';
     });
 
-    _stopTimer();
-  } catch (e) {
-    if (!mounted) return;
-    _showError('Clock-out failed: $e');
+    try {
+      final services = AppServices.of(context);
+      final currentUser = services.authService.currentUser;
+      if (currentUser == null) {
+        throw Exception('User not authenticated.');
+      }
+
+      await _locationService?.ensurePermissions();
+
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      await services.attendanceRepository.logAttendance(
+        uid: currentUser.uid,
+        status: AttendanceStatus.clockOut,
+        locationCoords: GeoPoint(position.latitude, position.longitude),
+      );
+
+      await services.liveLocationRepository.upsertLiveLocation(
+        uid: currentUser.uid,
+        fullName: currentUser.displayName ?? 'Intern',
+        email: currentUser.email ?? '',
+        latitude: position.latitude,
+        longitude: position.longitude,
+        accuracy: position.accuracy,
+        isClockedIn: false,
+        lastStatus: 'Clock-Out',
+      );
+
+      await _stopLiveTracking();
+      await _refreshCompletedHours();
+
+      if (!mounted) return;
+
+      setState(() {
+        _isClockedIn = false;
+        _statusMessage = 'Clock-Out logged successfully.';
+        _isLoading = false;
+      });
+
+      _stopTimer();
+    } catch (e) {
+      if (!mounted) return;
+      _showError('Clock-out failed: $e');
+    }
   }
-}
+
+  Future<void> _handleAutoStop(Position position) async {
+    if (!_isClockedIn || _isAutoStopping) return;
+
+    _isAutoStopping = true;
+
+    try {
+      final services = AppServices.of(context);
+      final currentUser = services.authService.currentUser;
+      if (currentUser == null) {
+        throw Exception('User not authenticated.');
+      }
+
+      await services.attendanceRepository.logAttendance(
+        uid: currentUser.uid,
+        status: AttendanceStatus.clockOut,
+        locationCoords: GeoPoint(position.latitude, position.longitude),
+      );
+
+      await services.liveLocationRepository.upsertLiveLocation(
+        uid: currentUser.uid,
+        fullName: currentUser.displayName ?? 'Intern',
+        email: currentUser.email ?? '',
+        latitude: position.latitude,
+        longitude: position.longitude,
+        accuracy: position.accuracy,
+        isClockedIn: false,
+        lastStatus: 'Auto Clock-Out',
+      );
+
+      await _stopLiveTracking();
+      await _refreshCompletedHours();
+
+      if (!mounted) return;
+
+      setState(() {
+        _isClockedIn = false;
+        _isLoading = false;
+        _errorMessage = null;
+        _statusMessage =
+            'You exited the allowed geofence. Timer stopped automatically.';
+      });
+
+      _stopTimer();
+    } catch (e) {
+      if (!mounted) return;
+      _showError('Automatic clock-out failed: $e');
+    } finally {
+      _isAutoStopping = false;
+    }
+  }
 
   Future<void> _handleClockInOut(AttendanceStatus status) async {
     if (_targetLat == null || _targetLng == null) {
@@ -275,30 +414,22 @@ Future<void> _stopLiveTracking() async {
         _isLoading = false;
       });
 
-     if (nowClockedIn) {
-  _clockInTime = confirmedAt;
-  _startTimer(confirmedAt);
-  await _startLiveTracking();
-} else {
-  _stopTimer();
-}
+      if (nowClockedIn) {
+        _clockInTime = confirmedAt;
+        _startTimer(confirmedAt);
+        await _startLiveTracking();
+      } else {
+        _stopTimer();
+      }
     } on app_location.OutsideGeofenceException catch (e) {
-      if (mounted) {
-        _showError(e.toString());
-      }
+      if (mounted) _showError(e.toString());
     } on app_location.LocationServiceDisabledException catch (e) {
-      if (mounted) {
-        _showError(e.toString());
-      }
+      if (mounted) _showError(e.toString());
     } on app_location.LocationPermissionDeniedException catch (e) {
-      if (mounted) {
-        _showError(e.toString());
-      }
+      if (mounted) _showError(e.toString());
     } catch (e) {
-  if (mounted) {
-    _showError('Clock action failed: $e');
-  }
-}
+      if (mounted) _showError('Clock action failed: $e');
+    }
   }
 
   void _showError(String message) {
@@ -308,6 +439,39 @@ Future<void> _stopLiveTracking() async {
       _statusMessage = null;
       _isLoading = false;
     });
+  }
+
+  void _handleBottomNavTap(int index) {
+    if (index == _selectedNavIndex) return;
+
+    setState(() => _selectedNavIndex = index);
+
+    switch (index) {
+      case 0:
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const InternHomeScreen()),
+        );
+        break;
+      case 1:
+        break;
+      case 2:
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const TimesheetScreen()),
+        );
+        break;
+      case 3:
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Profile page coming soon.',
+              style: GoogleFonts.dmSans(fontSize: 13),
+            ),
+          ),
+        );
+        break;
+    }
   }
 
   @override
@@ -327,6 +491,8 @@ Future<void> _stopLiveTracking() async {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _buildAssignmentCard(),
+                    const SizedBox(height: 16),
+                    _buildOjtHoursCard(),
                     const SizedBox(height: 20),
                     _buildTimerRing(),
                     const SizedBox(height: 24),
@@ -363,24 +529,21 @@ Future<void> _stopLiveTracking() async {
       color: const Color(0xFFF5F7FA),
       child: Row(
         children: [
-          GestureDetector(
-            onTap: () => Navigator.pop(context),
-            child: Container(
-              width: 36,
-              height: 36,
-              decoration: const BoxDecoration(
-                color: Color(0xFF1A3A6B),
-                shape: BoxShape.circle,
-              ),
-              child: Center(
-                child: Text(
-                  (services.authService.currentUser?.displayName ?? 'I')[0]
-                      .toUpperCase(),
-                  style: GoogleFonts.dmSans(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 15,
-                  ),
+          Container(
+            width: 36,
+            height: 36,
+            decoration: const BoxDecoration(
+              color: Color(0xFF1A3A6B),
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: Text(
+                (services.authService.currentUser?.displayName ?? 'I')[0]
+                    .toUpperCase(),
+                style: GoogleFonts.dmSans(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
                 ),
               ),
             ),
@@ -470,6 +633,124 @@ Future<void> _stopLiveTracking() async {
                 ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOjtHoursCard() {
+    final required = _requiredOjtHours ?? 0;
+    final completed = _completedOjtHours;
+    final remaining = math.max(0, required.toDouble() - completed);
+    final progress =
+        required <= 0 ? 0.0 : (completed / required).clamp(0.0, 1.0);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'OJT Progress',
+            style: GoogleFonts.dmSans(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: const Color(0xFF1A3A6B),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildMiniStat(
+                  label: 'Required',
+                  value: '$required hrs',
+                  color: const Color(0xFF1A3A6B),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildMiniStat(
+                  label: 'Completed',
+                  value: '${completed.toStringAsFixed(1)} hrs',
+                  color: const Color(0xFF2E7D32),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildMiniStat(
+                  label: 'Remaining',
+                  value: '${remaining.toStringAsFixed(1)} hrs',
+                  color: const Color(0xFFC62828),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              minHeight: 10,
+              value: progress,
+              backgroundColor: const Color(0xFFE8EDF5),
+              valueColor: const AlwaysStoppedAnimation(Color(0xFF1A3A6B)),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${(progress * 100).toStringAsFixed(1)}% completed',
+            style: GoogleFonts.dmSans(
+              fontSize: 12,
+              color: Colors.grey[600],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMiniStat({
+    required String label,
+    required String value,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F9FC),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: GoogleFonts.dmSans(
+              fontSize: 11,
+              color: Colors.grey[600],
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: GoogleFonts.dmSans(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
         ],
       ),
     );
@@ -690,82 +971,62 @@ Future<void> _stopLiveTracking() async {
     );
   }
 
+  Widget _buildBottomNav() {
+    final items = <(IconData, String)>[
+      (Icons.home_outlined, 'HOME'),
+      (Icons.timer_outlined, 'TIMER'),
+      (Icons.description_outlined, 'TIMESHEETS'),
+      (Icons.person_outline, 'PROFILE'),
+    ];
 
-  void _handleBottomNavTap(int index) {
-  if (index == 0) {
-    Navigator.pop(context);
-    return;
-  }
-
-  if (index == 1) {
-    return;
-  }
-
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text(
-        'Profile page is not wired yet.',
-        style: GoogleFonts.dmSans(fontSize: 13),
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 18),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(
+          top: BorderSide(color: Color(0xFFE9EEF5)),
+        ),
       ),
-    ),
-  );
-}
- Widget _buildBottomNav() {
-  final items = <(IconData, String)>[
-    (Icons.home_rounded, 'Home'),
-    (Icons.timer_rounded, 'Timer'),
-    (Icons.person_outline_rounded, 'Profile'),
-  ];
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: List.generate(items.length, (i) {
+          final active = i == _selectedNavIndex;
 
-  return Container(
-    padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
-    decoration: const BoxDecoration(
-      color: Colors.white,
-      border: Border(
-        top: BorderSide(color: Color(0xFFE9EEF5)),
-      ),
-    ),
-    child: Row(
-      mainAxisAlignment: MainAxisAlignment.spaceAround,
-      children: List.generate(items.length, (i) {
-        final active = i == 1;
-
-        return GestureDetector(
-          onTap: () => _handleBottomNavTap(i),
-          behavior: HitTestBehavior.opaque,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  items[i].$1,
-                  size: 22,
-                  color: active
-                      ? const Color(0xFF1A3A6B)
-                      : Colors.grey[400],
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  items[i].$2,
-                  style: GoogleFonts.dmSans(
-                    fontSize: 9,
-                    fontWeight:
-                        active ? FontWeight.w700 : FontWeight.w500,
-                    color: active
-                        ? const Color(0xFF1A3A6B)
-                        : Colors.grey[400],
-                    letterSpacing: 0.5,
+          return GestureDetector(
+            onTap: () => _handleBottomNavTap(i),
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    items[i].$1,
+                    size: 20,
+                    color:
+                        active ? const Color(0xFF0D4DB3) : Colors.grey[400],
                   ),
-                ),
-              ],
+                  const SizedBox(height: 4),
+                  Text(
+                    items[i].$2,
+                    style: GoogleFonts.dmSans(
+                      fontSize: 9,
+                      fontWeight:
+                          active ? FontWeight.w700 : FontWeight.w500,
+                      color: active
+                          ? const Color(0xFF0D4DB3)
+                          : Colors.grey[400],
+                      letterSpacing: 0.6,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        );
-      }),
-    ),
-  );
-}
+          );
+        }),
+      ),
+    );
+  }
 }
 
 class _RingPainter extends CustomPainter {
@@ -789,7 +1050,7 @@ class _RingPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round;
 
     final activePaint = Paint()
-      ..color = active ? const Color(0xFF2E7D32) : const Color(0xFF1A3A6B)
+      ..color = active ? const Color(0xFF2E7D32) : const Color(0xFF0D4DB3)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 14
       ..strokeCap = StrokeCap.round;
@@ -809,31 +1070,5 @@ class _RingPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _RingPainter oldDelegate) {
     return oldDelegate.progress != progress || oldDelegate.active != active;
-  }
-}
-
-class _NavIcon extends StatelessWidget {
-  final IconData icon;
-  final bool active;
-
-  const _NavIcon({
-    required this.icon,
-    required this.active,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 42,
-      height: 42,
-      decoration: BoxDecoration(
-        color: active ? const Color(0xFFEAF1FB) : Colors.transparent,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Icon(
-        icon,
-        color: active ? const Color(0xFF1A3A6B) : Colors.grey,
-      ),
-    );
   }
 }

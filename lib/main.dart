@@ -29,6 +29,7 @@ import 'repositories/role_repository.dart';
 import 'screens/login_screen.dart';
 import 'screens/web_login_screen.dart';
 import 'screens/admin_dashboard_layout.dart';
+import 'screens/web_unauthorized_screen.dart';
 
 import 'repositories/live_location_repository.dart';
 import 'repositories/time_request_repository.dart';
@@ -199,10 +200,14 @@ class AuthGate extends StatelessWidget {
                 : 'This app is for Interns only.\n'
                     'Please use the web portal to access your Supervisor account.';
 
-            return _RoleMismatchScreen(
-              message: mismatchMessage,
-              authService: authService,
-            );
+           if (kIsWeb) {
+  return const WebUnauthorizedScreen();
+}
+
+return _RoleMismatchScreen(
+  message: mismatchMessage,
+  authService: authService,
+);
           },
         );
       },

@@ -1,5 +1,3 @@
-// lib/screens/intern_home_screen.dart
-
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -8,8 +6,9 @@ import '../main.dart';
 import '../models/attendance_model.dart';
 import '../repositories/attendance_repository.dart';
 import '../utils/weekly_stats_calculator.dart';
-import 'timer_screen.dart';
 import 'time_request_screen.dart';
+import 'timer_screen.dart';
+import 'timesheet_screen.dart';
 
 class InternHomeScreen extends StatefulWidget {
   const InternHomeScreen({super.key});
@@ -19,7 +18,6 @@ class InternHomeScreen extends StatefulWidget {
 }
 
 class _InternHomeScreenState extends State<InternHomeScreen> {
-  // ── State ──────────────────────────────────────────────────────────
   WeeklyStats? _weeklyStats;
   AttendanceModel? _latestLog;
   bool _isLoadingStats = true;
@@ -32,8 +30,6 @@ class _InternHomeScreenState extends State<InternHomeScreen> {
   bool _didInit = false;
 
   int _selectedNavIndex = 0;
-
-  // ── Lifecycle ──────────────────────────────────────────────────────
 
   @override
   void didChangeDependencies() {
@@ -49,7 +45,12 @@ class _InternHomeScreenState extends State<InternHomeScreen> {
     final AttendanceRepository repo = services.attendanceRepository;
 
     if (uid == null) {
-      if (mounted) setState(() { _errorMessage = 'User not authenticated.'; _isLoadingStats = false; });
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'User not authenticated.';
+          _isLoadingStats = false;
+        });
+      }
       return;
     }
 
@@ -70,26 +71,41 @@ class _InternHomeScreenState extends State<InternHomeScreen> {
   }
 
   Future<void> _loadWeeklyStats(String uid, AttendanceRepository repo) async {
-    if (mounted) setState(() { _isLoadingStats = true; _errorMessage = null; });
+    if (mounted) {
+      setState(() {
+        _isLoadingStats = true;
+        _errorMessage = null;
+      });
+    }
+
     try {
       final logs = await repo.getLogsForCurrentWeek(uid);
       final stats = WeeklyStatsCalculator.calculate(logs);
-      if (mounted) setState(() => _weeklyStats = stats);
+      if (mounted) {
+        setState(() => _weeklyStats = stats);
+      }
     } catch (_) {
-      if (mounted) setState(() => _errorMessage = 'Could not load weekly stats.');
+      if (mounted) {
+        setState(() => _errorMessage = 'Could not load weekly stats.');
+      }
     } finally {
-      if (mounted) setState(() => _isLoadingStats = false);
+      if (mounted) {
+        setState(() => _isLoadingStats = false);
+      }
     }
   }
 
   void _reconcileElapsedTimer(AttendanceModel? log) {
     final bool isClockedIn = log?.status == AttendanceStatus.clockIn;
+
     if (isClockedIn) {
       _elapsed = DateTime.now().difference(log!.timestamp);
       _elapsedTimer?.cancel();
       _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
         if (!mounted) return;
-        setState(() => _elapsed = DateTime.now().difference(log.timestamp));
+        setState(() {
+          _elapsed = DateTime.now().difference(log.timestamp);
+        });
       });
     } else {
       _elapsedTimer?.cancel();
@@ -105,143 +121,83 @@ class _InternHomeScreenState extends State<InternHomeScreen> {
     super.dispose();
   }
 
-  // ── Helpers ────────────────────────────────────────────────────────
-
   String get _formattedElapsed {
     String pad(int n) => n.toString().padLeft(2, '0');
     return '${pad(_elapsed.inHours)}:${pad(_elapsed.inMinutes.remainder(60))}:${pad(_elapsed.inSeconds.remainder(60))}';
   }
 
-  String _formatTime(DateTime dt) {
-    final period = dt.hour >= 12 ? 'PM' : 'AM';
-    final hour = dt.hour > 12 ? dt.hour - 12 : (dt.hour == 0 ? 12 : dt.hour);
-    return '$hour:${dt.minute.toString().padLeft(2, '0')} $period';
+  void _handleBottomNavTap(int index) {
+    if (index == _selectedNavIndex) return;
+
+    setState(() => _selectedNavIndex = index);
+
+    switch (index) {
+      case 0:
+        break;
+      case 1:
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const TimerScreen()),
+        );
+        break;
+      case 2:
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const TimesheetScreen()),
+        );
+        break;
+      case 3:
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Profile page coming soon.',
+              style: GoogleFonts.dmSans(fontSize: 13),
+            ),
+          ),
+        );
+        break;
+    }
   }
-
-Future<void> _handleSignOut() async {
-  final shouldSignOut = await showDialog<bool>(
-    context: context,
-    builder: (context) {
-      return AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        title: Text(
-          'Sign out?',
-          style: GoogleFonts.dmSans(
-            fontWeight: FontWeight.w700,
-            color: const Color(0xFF0D1B2A),
-          ),
-        ),
-        content: Text(
-          'You will be returned to the login screen.',
-          style: GoogleFonts.dmSans(
-            fontSize: 13,
-            color: Colors.grey[700],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: Text(
-              'Cancel',
-              style: GoogleFonts.dmSans(
-                fontWeight: FontWeight.w600,
-                color: Colors.grey[700],
-              ),
-            ),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF1A3A6B),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-            child: Text(
-              'Sign Out',
-              style: GoogleFonts.dmSans(fontWeight: FontWeight.w700),
-            ),
-          ),
-     
-        ],
-      );
-    },
-  );
-
-  if (shouldSignOut != true || !mounted) return;
-
-  try {
-    await AppServices.of(context).authService.signOut();
-  } catch (_) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Failed to sign out. Please try again.',
-          style: GoogleFonts.dmSans(fontSize: 13),
-        ),
-      ),
-    );
-  }
-}
-  // ── Build ──────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     final services = AppServices.of(context);
-    final String name = services.authService.currentUser?.displayName ?? 'Intern';
+    final String name =
+        services.authService.currentUser?.displayName ?? 'Alex Chen';
     final String uid = services.authService.currentUser?.uid ?? '';
-    final bool isClockedIn = _latestLog?.status == AttendanceStatus.clockIn;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
       body: SafeArea(
         child: Column(
           children: [
-            _buildTopBar(name, services),
+            _buildTopBar(),
             Expanded(
               child: RefreshIndicator(
-                color: const Color(0xFF1A3A6B),
-                onRefresh: () => _loadWeeklyStats(uid, services.attendanceRepository),
+                color: const Color(0xFF0D4DB3),
+                onRefresh: () =>
+                    _loadWeeklyStats(uid, services.attendanceRepository),
                 child: ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
                   children: [
-                    // Welcome
                     _buildWelcomeHeader(name),
-                    const SizedBox(height: 16),
-
-                    // Error banner
+                    const SizedBox(height: 18),
                     if (_errorMessage != null) _buildErrorBanner(),
-
-                    // Current Task Card
-                    _buildCurrentTaskCard(isClockedIn),
-                    const SizedBox(height: 16),
-
-                    // Map / Zone Preview
-                    _buildZonePreview(isClockedIn),
-                    const SizedBox(height: 16),
-
-                    // Weekly Stats Row
-                    _buildWeeklyStats(),
-                    const SizedBox(height: 20),
-
-                    // Go to Timer CTA
-                    _buildGoToTimerButton(context),
-const SizedBox(height: 12),
-_buildTimeRequestButton(context),
-const SizedBox(height: 12),
-
-                    // Disclaimer
+                    _buildMapCard(),
+                    const SizedBox(height: 12),
+                    _buildStatsRow(),
+                    const SizedBox(height: 18),
+                    _buildGoToTimerButton(),
+                    const SizedBox(height: 10),
+                    _buildRequestTimeAdjustmentButton(),
+                    const SizedBox(height: 10),
                     Text(
                       'Timer access requires being within the designated Geofence. Ensure location services are active.',
                       textAlign: TextAlign.center,
                       style: GoogleFonts.dmSans(
-                        fontSize: 11,
+                        fontSize: 10,
                         color: Colors.grey[500],
-                        height: 1.5,
+                        height: 1.45,
                       ),
                     ),
                   ],
@@ -255,29 +211,29 @@ const SizedBox(height: 12),
     );
   }
 
-  // ── Top Bar ────────────────────────────────────────────────────────
+  Widget _buildTopBar() {
+    final services = AppServices.of(context);
+    final String letter =
+        (services.authService.currentUser?.displayName ?? 'I')[0].toUpperCase();
 
-  Widget _buildTopBar(String name, AppServices services) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      color: const Color(0xFFF5F7FA),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
       child: Row(
         children: [
-          // Avatar
           Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: const Color(0xFF1A3A6B),
+            width: 34,
+            height: 34,
+            decoration: const BoxDecoration(
+              color: Color(0xFFE86C3A),
               shape: BoxShape.circle,
             ),
             child: Center(
               child: Text(
-                (services.authService.currentUser?.displayName ?? 'I')[0].toUpperCase(),
+                letter,
                 style: GoogleFonts.dmSans(
                   color: Colors.white,
                   fontWeight: FontWeight.w700,
-                  fontSize: 15,
+                  fontSize: 14,
                 ),
               ),
             ),
@@ -288,20 +244,21 @@ const SizedBox(height: 12),
             style: GoogleFonts.dmSans(
               fontSize: 15,
               fontWeight: FontWeight.w700,
-              color: const Color(0xFF1A3A6B),
+              color: const Color(0xFF0D4DB3),
             ),
           ),
           const Spacer(),
-IconButton(
-  icon: const Icon(Icons.logout_rounded, color: Color(0xFF1A3A6B)),
-  onPressed: _handleSignOut,
-),
+          IconButton(
+            onPressed: () {},
+            icon: const Icon(
+              Icons.notifications_none_rounded,
+              color: Color(0xFF0D4DB3),
+            ),
+          ),
         ],
       ),
     );
   }
-
-  // ── Welcome Header ─────────────────────────────────────────────────
 
   Widget _buildWelcomeHeader(String name) {
     return Column(
@@ -312,231 +269,74 @@ IconButton(
           style: GoogleFonts.dmSans(
             fontSize: 11,
             fontWeight: FontWeight.w700,
-            letterSpacing: 1.4,
-            color: Colors.grey[500],
+            letterSpacing: 1.3,
+            color: const Color(0xFF8A97AB),
           ),
         ),
-        const SizedBox(height: 2),
+        const SizedBox(height: 4),
         Text(
           name,
           style: GoogleFonts.dmSans(
-            fontSize: 26,
+            fontSize: 24,
             fontWeight: FontWeight.w800,
-            color: const Color(0xFF0D1B2A),
+            color: const Color(0xFF1C2434),
           ),
         ),
       ],
     );
   }
 
-  // ── Current Task Card ──────────────────────────────────────────────
-
-  Widget _buildCurrentTaskCard(bool isClockedIn) {
+  Widget _buildMapCard() {
     return Container(
+      height: 120,
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header tabs row
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-            child: Row(
-              children: [
-                _buildTabChip('CURRENT TASK', true),
-                const SizedBox(width: 8),
-                _buildTabChip('LOGGED BY SUPERVISOR', false),
-              ],
-            ),
-          ),
-          const SizedBox(height: 14),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Geospatial Data Validation',
-                  style: GoogleFonts.dmSans(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w800,
-                    color: const Color(0xFF0D1B2A),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Cross-referencing satellite imagery signatures with field metadata for the Central Valley project area. High precision required for AI model refinement.',
-                  style: GoogleFonts.dmSans(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                    height: 1.5,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                // Status chips
-                Row(
-                  children: [
-                    _buildStatusChip(
-                      icon: Icons.circle_outlined,
-                      label: 'Not Started',
-                      color: Colors.grey[600]!,
-                      bg: Colors.grey[100]!,
-                    ),
-                    const SizedBox(width: 8),
-                    _buildStatusChip(
-                      icon: Icons.location_off_outlined,
-                      label: 'Outside Geofence',
-                      color: const Color(0xFFC62828),
-                      bg: const Color(0xFFFFEBEE),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTabChip(String label, bool active) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: active ? const Color(0xFFE8EDF7) : const Color(0xFFF0F0F0),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        label,
-        style: GoogleFonts.dmSans(
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0.5,
-          color: active ? const Color(0xFF1A3A6B) : Colors.grey[500],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatusChip({
-    required IconData icon,
-    required String label,
-    required Color color,
-    required Color bg,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 13, color: color),
-          const SizedBox(width: 5),
-          Text(
-            label,
-            style: GoogleFonts.dmSans(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: color,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── Zone Preview ───────────────────────────────────────────────────
-
-  Widget _buildZonePreview(bool isClockedIn) {
-    return Container(
-      height: 160,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        color: const Color(0xFF1A3A6B),
+        borderRadius: BorderRadius.circular(14),
+        color: const Color(0xFF1C7A8B),
       ),
       clipBehavior: Clip.hardEdge,
       child: Stack(
         children: [
-          // Grid pattern background
           CustomPaint(
-            size: const Size(double.infinity, 160),
+            size: const Size(double.infinity, 120),
             painter: _GridPainter(),
           ),
-          // Active zone pulse
-          Center(
-            child: Container(
-              width: 80,
-              height: 80,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: const Color(0xFF4FC3F7).withOpacity(0.15),
-                border: Border.all(
-                  color: const Color(0xFF4FC3F7).withOpacity(0.6),
-                  width: 1.5,
-                ),
-              ),
-              child: Center(
-                child: Container(
-                  width: 12,
-                  height: 12,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Color(0xFF4FC3F7),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          // Active Zone badge
           Positioned(
             top: 12,
             right: 12,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
-                color: const Color(0xFF4FC3F7).withOpacity(0.2),
+                color: Colors.white.withOpacity(0.92),
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: const Color(0xFF4FC3F7).withOpacity(0.5)),
               ),
               child: Text(
                 'ACTIVE ZONE',
                 style: GoogleFonts.dmSans(
-                  fontSize: 10,
+                  fontSize: 9,
                   fontWeight: FontWeight.w700,
-                  color: const Color(0xFF4FC3F7),
-                  letterSpacing: 0.8,
+                  color: const Color(0xFF4B5563),
                 ),
               ),
             ),
           ),
-          // Campus label
           Positioned(
             bottom: 12,
             left: 12,
             child: Row(
               children: [
-                const Icon(Icons.location_on, size: 13, color: Color(0xFF4FC3F7)),
+                const Icon(
+                  Icons.location_on,
+                  size: 12,
+                  color: Colors.white,
+                ),
                 const SizedBox(width: 4),
                 Text(
                   'MAIN CAMPUS HUB',
                   style: GoogleFonts.dmSans(
                     fontSize: 10,
                     fontWeight: FontWeight.w700,
-                    color: Colors.white70,
-                    letterSpacing: 0.8,
+                    color: Colors.white,
+                    letterSpacing: 0.4,
                   ),
                 ),
               ],
@@ -547,24 +347,28 @@ IconButton(
     );
   }
 
-  // ── Weekly Stats ───────────────────────────────────────────────────
+  Widget _buildStatsRow() {
+    final weeklyValue =
+        _isLoadingStats ? '—' : (_weeklyStats?.formattedHours ?? '32.5 hrs');
+    final approvalValue = _isLoadingStats
+        ? '—'
+        : (_weeklyStats?.formattedApprovalRate ?? '98.2%');
 
-  Widget _buildWeeklyStats() {
     return Row(
       children: [
         Expanded(
           child: _buildStatCard(
             icon: Icons.access_time_rounded,
             label: 'WEEKLY TOTAL',
-            value: _isLoadingStats ? '—' : (_weeklyStats?.formattedHours ?? '0h 0m'),
+            value: weeklyValue,
           ),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 10),
         Expanded(
           child: _buildStatCard(
-            icon: Icons.check_circle_outline,
+            icon: Icons.verified_outlined,
             label: 'APPROVAL RATE',
-            value: _isLoadingStats ? '—' : (_weeklyStats?.formattedApprovalRate ?? '0.0%'),
+            value: approvalValue,
           ),
         ),
       ],
@@ -577,43 +381,32 @@ IconButton(
     required String value,
   }) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(icon, size: 15, color: const Color(0xFF1A3A6B)),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: GoogleFonts.dmSans(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.8,
-                  color: Colors.grey[500],
-                ),
-              ),
-            ],
-          ),
+          Icon(icon, size: 18, color: const Color(0xFF0D4DB3)),
           const SizedBox(height: 8),
+          Text(
+            label,
+            style: GoogleFonts.dmSans(
+              fontSize: 9,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.8,
+              color: const Color(0xFF6B7280),
+            ),
+          ),
+          const SizedBox(height: 4),
           Text(
             value,
             style: GoogleFonts.dmSans(
-              fontSize: 22,
+              fontSize: 22 > 18 ? 18 : 18,
               fontWeight: FontWeight.w800,
-              color: const Color(0xFF0D1B2A),
+              color: const Color(0xFF1C2434),
             ),
           ),
         ],
@@ -621,18 +414,18 @@ IconButton(
     );
   }
 
-  // ── Go to Timer Button ─────────────────────────────────────────────
-
-  Widget _buildGoToTimerButton(BuildContext context) {
+  Widget _buildGoToTimerButton() {
     return SizedBox(
       width: double.infinity,
       height: 52,
       child: ElevatedButton.icon(
-        onPressed: () => Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const TimerScreen()),
-        ),
-        icon: const Icon(Icons.play_arrow_rounded, size: 22),
+        onPressed: () {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const TimerScreen()),
+          );
+        },
+        icon: const Icon(Icons.timer_outlined, size: 18),
         label: Text(
           'Go to Timer',
           style: GoogleFonts.dmSans(
@@ -641,45 +434,46 @@ IconButton(
           ),
         ),
         style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF1A3A6B),
+          backgroundColor: const Color(0xFF0D4DB3),
           foregroundColor: Colors.white,
           elevation: 0,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(12),
           ),
         ),
       ),
     );
   }
 
-Widget _buildTimeRequestButton(BuildContext context) {
-  return SizedBox(
-    width: double.infinity,
-    height: 52,
-    child: OutlinedButton.icon(
-      onPressed: () => Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const TimeRequestScreen()),
-      ),
-      icon: const Icon(Icons.edit_calendar_outlined, size: 20),
-      label: Text(
-        'Request Time Adjustment',
-        style: GoogleFonts.dmSans(
-          fontSize: 15,
-          fontWeight: FontWeight.w700,
+  Widget _buildRequestTimeAdjustmentButton() {
+    return SizedBox(
+      width: double.infinity,
+      height: 52,
+      child: ElevatedButton(
+        onPressed: () {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const TimeRequestScreen()),
+          );
+        },
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF0D4DB3),
+          foregroundColor: Colors.white,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+        child: Text(
+          'Request Time Adjustment',
+          style: GoogleFonts.dmSans(
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+          ),
         ),
       ),
-      style: OutlinedButton.styleFrom(
-        foregroundColor: const Color(0xFF1A3A6B),
-        side: const BorderSide(color: Color(0xFF1A3A6B), width: 1.4),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-        ),
-      ),
-    ),
-  );
-}
-  // ── Error Banner ───────────────────────────────────────────────────
+    );
+  }
 
   Widget _buildErrorBanner() {
     return Padding(
@@ -703,88 +497,72 @@ Widget _buildTimeRequestButton(BuildContext context) {
     );
   }
 
-  // ── Bottom Nav ─────────────────────────────────────────────────────
-
   Widget _buildBottomNav() {
-    final items = [
-      (Icons.home_rounded, 'HOME'),
+    final items = <(IconData, String)>[
+      (Icons.home_outlined, 'HOME'),
       (Icons.timer_outlined, 'TIMER'),
-      (Icons.table_chart_outlined, 'TIMESHEETS'),
-      (Icons.history_rounded, 'HISTORY'),
+      (Icons.description_outlined, 'TIMESHEETS'),
+      (Icons.person_outline, 'PROFILE'),
     ];
 
     return Container(
-      decoration: BoxDecoration(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 18),
+      decoration: const BoxDecoration(
         color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            blurRadius: 10,
-            offset: const Offset(0, -2),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: List.generate(items.length, (i) {
-              final active = _selectedNavIndex == i;
-              return GestureDetector(
-                onTap: () {
-                  setState(() => _selectedNavIndex = i);
-                  if (i == 1) {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const TimerScreen()),
-                    );
-                  }
-                },
-                behavior: HitTestBehavior.opaque,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        items[i].$1,
-                        size: 22,
-                        color: active ? const Color(0xFF1A3A6B) : Colors.grey[400],
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        items[i].$2,
-                        style: GoogleFonts.dmSans(
-                          fontSize: 9,
-                          fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                          color: active ? const Color(0xFF1A3A6B) : Colors.grey[400],
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }),
-          ),
+        border: Border(
+          top: BorderSide(color: Color(0xFFE9EEF5)),
         ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: List.generate(items.length, (i) {
+          final active = _selectedNavIndex == i;
+
+          return GestureDetector(
+            onTap: () => _handleBottomNavTap(i),
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    items[i].$1,
+                    size: 20,
+                    color:
+                        active ? const Color(0xFF0D4DB3) : Colors.grey[400],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    items[i].$2,
+                    style: GoogleFonts.dmSans(
+                      fontSize: 9,
+                      fontWeight:
+                          active ? FontWeight.w700 : FontWeight.w500,
+                      color: active
+                          ? const Color(0xFF0D4DB3)
+                          : Colors.grey[400],
+                      letterSpacing: 0.6,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }),
       ),
     );
   }
 }
 
-// ── Grid Painter for zone preview ─────────────────────────────────────
-
 class _GridPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Colors.white.withOpacity(0.07)
-      ..strokeWidth = 0.8;
+      ..color = Colors.white.withOpacity(0.16)
+      ..strokeWidth = 0.7;
 
-    const step = 24.0;
+    const step = 18.0;
     for (double x = 0; x < size.width; x += step) {
       canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
     }
@@ -794,5 +572,5 @@ class _GridPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter old) => false;
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

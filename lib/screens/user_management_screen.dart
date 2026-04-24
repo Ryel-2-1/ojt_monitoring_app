@@ -61,14 +61,13 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                   final q = _searchQuery.trim().toLowerCase();
                   if (q.isEmpty) return true;
                   return user.fullName.toLowerCase().contains(q) ||
-                      user.email.toLowerCase().contains(q);
+                      user.email.toLowerCase().contains(q) ||
+                      user.uid.toLowerCase().contains(q);
                 }).toList();
 
                 return Column(
                   children: [
-                    Expanded(
-                      child: _buildTableCard(filteredUsers),
-                    ),
+                    Expanded(child: _buildTableCard(filteredUsers)),
                     const SizedBox(height: 24),
                     _buildSummaryCard(filteredUsers.length),
                   ],
@@ -159,46 +158,36 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
   Widget _buildTableCard(List<UserModel> users) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
+      padding: const EdgeInsets.fromLTRB(28, 24, 28, 28),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(18),
       ),
       child: Column(
         children: [
           _buildTableHeader(),
-          const SizedBox(height: 14),
-          const Divider(height: 1, color: Color(0xFFE8EDF4)),
-          const SizedBox(height: 10),
+          const Divider(height: 28, color: Color(0xFFE8EDF5)),
           Expanded(
             child: users.isEmpty
                 ? Center(
                     child: Text(
-                      'No intern users found.',
+                      'No students found.',
                       style: GoogleFonts.plusJakartaSans(
-                        color: Colors.grey[500],
                         fontSize: 13,
+                        color: Colors.grey[600],
                       ),
                     ),
                   )
                 : ListView.separated(
                     itemCount: users.length,
                     separatorBuilder: (_, __) =>
-                        const Divider(height: 20, color: Color(0xFFF0F3F8)),
+                        const Divider(height: 28, color: Color(0xFFE8EDF5)),
                     itemBuilder: (context, index) {
-                      final user = users[index];
-                      return _buildUserRow(user);
+                      return _buildUserRow(users[index]);
                     },
                   ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
           Align(
             alignment: Alignment.centerLeft,
             child: Text(
@@ -215,18 +204,18 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
   }
 
   Widget _buildTableHeader() {
-    TextStyle headerStyle = GoogleFonts.plusJakartaSans(
-      fontSize: 11,
+    final headerStyle = GoogleFonts.plusJakartaSans(
+      fontSize: 12,
       fontWeight: FontWeight.w700,
       color: Colors.grey[600],
-      letterSpacing: 0.5,
     );
 
     return Row(
       children: [
         Expanded(flex: 4, child: Text('NAME & IDENTITY', style: headerStyle)),
         Expanded(flex: 2, child: Text('ROLE', style: headerStyle)),
-        Expanded(flex: 3, child: Text('INSTITUTION/COMPANY', style: headerStyle)),
+        Expanded(
+            flex: 3, child: Text('INSTITUTION/COMPANY', style: headerStyle)),
         Expanded(flex: 2, child: Text('STATUS', style: headerStyle)),
         Expanded(flex: 2, child: Text('LAST LOGIN', style: headerStyle)),
         Expanded(flex: 2, child: Text('', style: headerStyle)),
@@ -273,10 +262,11 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      user.email,
+                      '${user.email}\n${user.uid}',
                       style: GoogleFonts.plusJakartaSans(
                         fontSize: 11,
                         color: Colors.grey[600],
+                        height: 1.35,
                       ),
                     ),
                   ],
@@ -328,15 +318,12 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                 height: 30,
                 child: ElevatedButton(
                   onPressed: () {
-  Navigator.of(context).push(
-    MaterialPageRoute(
-      builder: (_) => AdminDashboardLayout(
-        activeRoute: 'User Management',
-        child: EditGeofenceScreen(user: user),
-      ),
-    ),
-  );
-},
+                   Navigator.of(context).push(
+  MaterialPageRoute(
+    builder: (_) => EditGeofenceScreen(userUid: user.uid),
+  ),
+);
+                  },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF0D4DB3),
                     foregroundColor: Colors.white,
@@ -355,14 +342,20 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               SizedBox(
-                width: 84,
-                height: 30,
+                width: 104,
+                height: 32,
                 child: ElevatedButton(
-                  onPressed: () {},
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Evaluate flow not wired yet.'),
+                      ),
+                    );
+                  },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF0A2351),
+                    backgroundColor: const Color(0xFF081F5C),
                     foregroundColor: Colors.white,
                     elevation: 0,
                     padding: EdgeInsets.zero,
@@ -373,7 +366,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                   child: Text(
                     'EVALUATE',
                     style: GoogleFonts.plusJakartaSans(
-                      fontSize: 10,
+                      fontSize: 11,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -386,72 +379,17 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     );
   }
 
-  Widget _buildSummaryCard(int totalStudents) {
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Container(
-        width: 180,
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.03),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                color: const Color(0xFFEAF1FB),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(Icons.groups_2_outlined,
-                  color: Color(0xFF0D4DB3), size: 18),
-            ),
-            const SizedBox(height: 14),
-            Text(
-              'TOTAL ACTIVE STUDENTS',
-              style: GoogleFonts.plusJakartaSans(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: Colors.grey[600],
-                letterSpacing: 0.4,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              '$totalStudents',
-              style: GoogleFonts.plusJakartaSans(
-                fontSize: 30,
-                fontWeight: FontWeight.w800,
-                color: const Color(0xFF1C2434),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildRoleBadge(String label) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
       decoration: BoxDecoration(
-        color: const Color(0xFFE8F0FF),
-        borderRadius: BorderRadius.circular(20),
+        color: const Color(0xFFEAF1FF),
+        borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
         label,
         style: GoogleFonts.plusJakartaSans(
-          fontSize: 10,
+          fontSize: 11,
           fontWeight: FontWeight.w700,
           color: const Color(0xFF0D4DB3),
         ),
@@ -459,18 +397,18 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     );
   }
 
-  Widget _buildStatusBadge(String label, Color dotColor) {
+  Widget _buildStatusBadge(String label, Color color) {
     return Row(
       children: [
         Container(
-          width: 7,
-          height: 7,
+          width: 8,
+          height: 8,
           decoration: BoxDecoration(
-            color: dotColor,
+            color: color,
             shape: BoxShape.circle,
           ),
         ),
-        const SizedBox(width: 6),
+        const SizedBox(width: 8),
         Text(
           label,
           style: GoogleFonts.plusJakartaSans(
@@ -482,11 +420,59 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     );
   }
 
-  String _initialsOf(String name) {
-    final parts = name.trim().split(RegExp(r'\s+'));
-    if (parts.isEmpty || parts.first.isEmpty) return 'U';
-    if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
-    return (parts.first.substring(0, 1) + parts.last.substring(0, 1))
-        .toUpperCase();
+  Widget _buildSummaryCard(int totalStudents) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        width: 225,
+        padding: const EdgeInsets.all(22),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: const Color(0xFFEAF1FF),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: const Icon(
+                Icons.groups_2_outlined,
+                color: Color(0xFF0D4DB3),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              'TOTAL ACTIVE STUDENTS',
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: Colors.grey[600],
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              '$totalStudents',
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 42,
+                fontWeight: FontWeight.w800,
+                color: const Color(0xFF1C2434),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _initialsOf(String fullName) {
+    final parts = fullName.trim().split(RegExp(r'\s+'));
+    if (parts.isEmpty) return 'U';
+    if (parts.length == 1) return parts.first[0].toUpperCase();
+    return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
   }
 }

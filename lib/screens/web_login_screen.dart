@@ -5,6 +5,7 @@ import '../main.dart';
 import '../services/auth_service.dart';
 import 'web_register_screen.dart';
 import 'web_forgot_password_screen.dart';
+import 'web_unauthorized_screen.dart';
 
 class WebLoginScreen extends StatefulWidget {
   const WebLoginScreen({super.key});
@@ -29,6 +30,24 @@ class _WebLoginScreenState extends State<WebLoginScreen> {
     super.dispose();
   }
 
+  bool _shouldGoToUnauthorized(String message) {
+    final text = message.toLowerCase();
+    return text.contains('intern accounts are not permitted') ||
+        text.contains('not permitted on the supervisor portal') ||
+        text.contains('supervisor only') ||
+        text.contains('unauthorized');
+  }
+
+  Future<void> _goToUnauthorized() async {
+    if (!mounted) return;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const WebUnauthorizedScreen(),
+      ),
+    );
+  }
+
   Future<void> _handleEmailSignIn() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -45,11 +64,17 @@ class _WebLoginScreenState extends State<WebLoginScreen> {
         password: _passwordController.text,
       );
 
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      if (!mounted) return;
+      setState(() => _isLoading = false);
     } on AuthException catch (e) {
       if (!mounted) return;
+
+      if (_shouldGoToUnauthorized(e.message)) {
+        setState(() => _isLoading = false);
+        await _goToUnauthorized();
+        return;
+      }
+
       setState(() {
         _errorMessage = e.message;
         _isLoading = false;
@@ -85,6 +110,13 @@ class _WebLoginScreenState extends State<WebLoginScreen> {
       }
     } on AuthException catch (e) {
       if (!mounted) return;
+
+      if (_shouldGoToUnauthorized(e.message)) {
+        setState(() => _isLoading = false);
+        await _goToUnauthorized();
+        return;
+      }
+
       setState(() {
         _errorMessage = e.message;
         _isLoading = false;
@@ -236,23 +268,23 @@ class _WebLoginScreenState extends State<WebLoginScreen> {
               ),
             ),
             InkWell(
-  onTap: () {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => const WebForgotPasswordScreen(),
-      ),
-    );
-  },
-  child: Text(
-    'Forgot Password?',
-    style: GoogleFonts.plusJakartaSans(
-      color: const Color(0xFF0046AD),
-      fontSize: 12,
-      fontWeight: FontWeight.bold,
-    ),
-  ),
-),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const WebForgotPasswordScreen(),
+                  ),
+                );
+              },
+              child: Text(
+                'Forgot Password?',
+                style: GoogleFonts.plusJakartaSans(
+                  color: const Color(0xFF0046AD),
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 8),
@@ -427,28 +459,28 @@ class _WebLoginScreenState extends State<WebLoginScreen> {
     );
   }
 
- Widget _buildRegisterLink(BuildContext context) {
-  return InkWell(
-    onTap: () {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => const WebRegisterScreen(),
-        ),
-      );
-    },
-    borderRadius: BorderRadius.circular(6),
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-      child: Text(
-        'Need an account? Register here',
-        style: GoogleFonts.plusJakartaSans(
-          color: const Color(0xFF0046AD),
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
+  Widget _buildRegisterLink(BuildContext context) {
+    return InkWell(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const WebRegisterScreen(),
+          ),
+        );
+      },
+      borderRadius: BorderRadius.circular(6),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        child: Text(
+          'Need an account? Register here',
+          style: GoogleFonts.plusJakartaSans(
+            color: const Color(0xFF0046AD),
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
 }

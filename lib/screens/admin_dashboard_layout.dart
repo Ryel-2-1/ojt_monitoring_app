@@ -6,6 +6,8 @@ import 'user_management_screen.dart';
 import 'live_monitoring_screen.dart';
 import 'system_logs_screen.dart';
 import 'time_requests_screen.dart';
+import '../main.dart';
+import 'web_login_screen.dart';
 
 class AdminDashboardLayout extends StatefulWidget {
   final String activeRoute;
@@ -61,10 +63,13 @@ class _AdminDashboardLayoutState extends State<AdminDashboardLayout> {
                   padding: const EdgeInsets.all(16.0),
                   child: Column(
                     children: [
-                      _buildFooterItem(Icons.description_outlined, 'Documentation'),
+                      _buildFooterItem(
+                          Icons.description_outlined, 'Documentation'),
                       _buildFooterItem(Icons.help_outline, 'Support'),
                       const SizedBox(height: 16),
                       _buildUserProfile(),
+                      const SizedBox(height: 12),
+                      _buildSignOutButton(),
                     ],
                   ),
                 ),
@@ -229,6 +234,7 @@ class _AdminDashboardLayoutState extends State<AdminDashboardLayout> {
 
   Widget _buildUserProfile() {
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -251,6 +257,32 @@ class _AdminDashboardLayoutState extends State<AdminDashboardLayout> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSignOutButton() {
+    return SizedBox(
+      width: double.infinity,
+      height: 42,
+      child: OutlinedButton.icon(
+        onPressed: () async {
+          await AppServices.of(context).authService.signOut();
+          if (!context.mounted) return;
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const WebLoginScreen()),
+            (route) => false,
+          );
+        },
+        icon: const Icon(Icons.logout_rounded, size: 18),
+        label: const Text('Sign Out'),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: const Color(0xFF1C2434),
+          side: const BorderSide(color: Color(0xFFE0E6EF)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
       ),
     );
   }
