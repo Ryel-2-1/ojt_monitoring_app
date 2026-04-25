@@ -9,8 +9,9 @@ import 'package:google_fonts/google_fonts.dart';
 import '../main.dart';
 import '../models/attendance_model.dart';
 import '../services/location_service.dart' as app_location;
-import 'intern_home_screen.dart';
+
 import 'timesheet_screen.dart';
+import 'profile_screen.dart';
 
 class TimerScreen extends StatefulWidget {
   const TimerScreen({super.key});
@@ -210,11 +211,11 @@ class _TimerScreenState extends State<TimerScreen>
         lastStatus: 'Clock-In',
       );
     } catch (e) {
-      debugPrint('Initial live location write failed: $e');
-      if (mounted) {
-        _showError('Initial live location write failed: $e');
-      }
-    }
+  debugPrint('Initial live location write failed: $e');
+  if (mounted) {
+    _showError('Could not start live location tracking. Please try again.');
+  }
+}
 
     _positionStreamSub = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
@@ -442,37 +443,30 @@ class _TimerScreenState extends State<TimerScreen>
   }
 
   void _handleBottomNavTap(int index) {
-    if (index == _selectedNavIndex) return;
+  if (index == 1) return;
 
-    setState(() => _selectedNavIndex = index);
+  switch (index) {
+    case 0:
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const AuthGate()),
+        (route) => false,
+      );
+      break;
 
-    switch (index) {
-      case 0:
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const InternHomeScreen()),
-        );
-        break;
-      case 1:
-        break;
-      case 2:
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const TimesheetScreen()),
-        );
-        break;
-      case 3:
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Profile page coming soon.',
-              style: GoogleFonts.dmSans(fontSize: 13),
-            ),
-          ),
-        );
-        break;
-    }
+    case 2:
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const TimesheetScreen()),
+        (route) => route.isFirst,
+      );
+      break;
+
+    case 3:
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const ProfileScreen()),
+      );
+      break;
   }
+}
 
   @override
   Widget build(BuildContext context) {

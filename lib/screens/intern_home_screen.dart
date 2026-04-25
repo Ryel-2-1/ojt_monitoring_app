@@ -9,6 +9,7 @@ import '../utils/weekly_stats_calculator.dart';
 import 'time_request_screen.dart';
 import 'timer_screen.dart';
 import 'timesheet_screen.dart';
+import 'profile_screen.dart';
 
 class InternHomeScreen extends StatefulWidget {
   const InternHomeScreen({super.key});
@@ -70,6 +71,98 @@ class _InternHomeScreenState extends State<InternHomeScreen> {
     );
   }
 
+Future<void> _handleSignOut() async {
+  final shouldSignOut = await showDialog<bool>(
+    context: context,
+    builder: (context) {
+      return AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        title: Text(
+          'Sign out?',
+          style: GoogleFonts.dmSans(
+            fontWeight: FontWeight.w700,
+            color: const Color(0xFF0D1B2A),
+          ),
+        ),
+        content: Text(
+          'You will be returned to the login screen.',
+          style: GoogleFonts.dmSans(
+            fontSize: 13,
+            color: Colors.grey[700],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(
+              'Cancel',
+              style: GoogleFonts.dmSans(
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[700],
+              ),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0D4DB3),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            child: Text(
+              'Sign Out',
+              style: GoogleFonts.dmSans(fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      );
+    },
+  );
+
+  if (shouldSignOut != true || !mounted) return;
+
+  try {
+    // Stop local listeners before Firebase Auth changes.
+    await _logStreamSub?.cancel();
+    _logStreamSub = null;
+
+    _elapsedTimer?.cancel();
+    _elapsedTimer = null;
+
+    if (mounted) {
+      setState(() {
+        _errorMessage = null;
+        _latestLog = null;
+        _elapsed = Duration.zero;
+      });
+    }
+
+    await AppServices.of(context).authService.signOut();
+
+    if (!mounted) return;
+
+    // Return to AuthGate so it can show LoginScreen cleanly.
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const AuthGate()),
+      (route) => false,
+    );
+  } catch (_) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Failed to sign out. Please try again.',
+          style: GoogleFonts.dmSans(fontSize: 13),
+        ),
+      ),
+    );
+  }
+}
   Future<void> _loadWeeklyStats(String uid, AttendanceRepository repo) async {
     if (mounted) {
       setState(() {
@@ -126,44 +219,37 @@ class _InternHomeScreenState extends State<InternHomeScreen> {
     return '${pad(_elapsed.inHours)}:${pad(_elapsed.inMinutes.remainder(60))}:${pad(_elapsed.inSeconds.remainder(60))}';
   }
 
-  void _handleBottomNavTap(int index) {
-    if (index == _selectedNavIndex) return;
+ void _handleBottomNavTap(int index) {
+  if (index == 0) return;
 
-    setState(() => _selectedNavIndex = index);
+  switch (index) {
+    case 1:
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const TimerScreen()),
+        (route) => route.isFirst,
+      );
+      break;
 
-    switch (index) {
-      case 0:
-        break;
-      case 1:
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const TimerScreen()),
-        );
-        break;
-      case 2:
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const TimesheetScreen()),
-        );
-        break;
-      case 3:
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Profile page coming soon.',
-              style: GoogleFonts.dmSans(fontSize: 13),
-            ),
-          ),
-        );
-        break;
-    }
+    case 2:
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const TimesheetScreen()),
+        (route) => route.isFirst,
+      );
+      break;
+
+    case 3:
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const ProfileScreen()),
+      );
+      break;
   }
+}
 
   @override
   Widget build(BuildContext context) {
     final services = AppServices.of(context);
     final String name =
-        services.authService.currentUser?.displayName ?? 'Alex Chen';
+    services.authService.currentUser?.displayName ?? 'Intern';
     final String uid = services.authService.currentUser?.uid ?? '';
 
     return Scaffold(
@@ -211,54 +297,66 @@ class _InternHomeScreenState extends State<InternHomeScreen> {
     );
   }
 
-  Widget _buildTopBar() {
-    final services = AppServices.of(context);
-    final String letter =
-        (services.authService.currentUser?.displayName ?? 'I')[0].toUpperCase();
+ Widget _buildTopBar() {
+  final services = AppServices.of(context);
+  final displayName = services.authService.currentUser?.displayName;
+  final String letter =
+      (displayName != null && displayName.trim().isNotEmpty)
+          ? displayName.trim()[0].toUpperCase()
+          : 'I';
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
-      child: Row(
-        children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: const BoxDecoration(
-              color: Color(0xFFE86C3A),
-              shape: BoxShape.circle,
-            ),
-            child: Center(
-              child: Text(
-                letter,
-                style: GoogleFonts.dmSans(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 14,
-                ),
+  return Padding(
+    padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
+    child: Row(
+      children: [
+        Container(
+          width: 34,
+          height: 34,
+          decoration: const BoxDecoration(
+            color: Color(0xFFE86C3A),
+            shape: BoxShape.circle,
+          ),
+          child: Center(
+            child: Text(
+              letter,
+              style: GoogleFonts.dmSans(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+                fontSize: 14,
               ),
             ),
           ),
-          const SizedBox(width: 10),
-          Text(
-            'Internship Monitor',
-            style: GoogleFonts.dmSans(
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
-              color: const Color(0xFF0D4DB3),
-            ),
+        ),
+        const SizedBox(width: 10),
+        Text(
+          'Internship Monitor',
+          style: GoogleFonts.dmSans(
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+            color: const Color(0xFF0D4DB3),
           ),
-          const Spacer(),
-          IconButton(
-            onPressed: () {},
-            icon: const Icon(
-              Icons.notifications_none_rounded,
-              color: Color(0xFF0D4DB3),
-            ),
+        ),
+        const Spacer(),
+        IconButton(
+          onPressed: () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Notifications coming soon.',
+                  style: GoogleFonts.dmSans(fontSize: 13),
+                ),
+              ),
+            );
+          },
+          icon: const Icon(
+            Icons.notifications_none_rounded,
+            color: Color(0xFF0D4DB3),
           ),
-        ],
-      ),
-    );
-  }
+        ),
+      ],
+    ),
+  );
+}
 
   Widget _buildWelcomeHeader(String name) {
     return Column(
@@ -349,10 +447,10 @@ class _InternHomeScreenState extends State<InternHomeScreen> {
 
   Widget _buildStatsRow() {
     final weeklyValue =
-        _isLoadingStats ? '—' : (_weeklyStats?.formattedHours ?? '32.5 hrs');
+        _isLoadingStats ? '—' : (_weeklyStats?.formattedHours ?? '0 hrs');
     final approvalValue = _isLoadingStats
         ? '—'
-        : (_weeklyStats?.formattedApprovalRate ?? '98.2%');
+        : (_weeklyStats?.formattedApprovalRate ?? '0%');
 
     return Row(
       children: [
@@ -404,7 +502,7 @@ class _InternHomeScreenState extends State<InternHomeScreen> {
           Text(
             value,
             style: GoogleFonts.dmSans(
-              fontSize: 22 > 18 ? 18 : 18,
+              fontSize: 18,
               fontWeight: FontWeight.w800,
               color: const Color(0xFF1C2434),
             ),
@@ -415,65 +513,64 @@ class _InternHomeScreenState extends State<InternHomeScreen> {
   }
 
   Widget _buildGoToTimerButton() {
-    return SizedBox(
-      width: double.infinity,
-      height: 52,
-      child: ElevatedButton.icon(
-        onPressed: () {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const TimerScreen()),
-          );
-        },
-        icon: const Icon(Icons.timer_outlined, size: 18),
-        label: Text(
-          'Go to Timer',
-          style: GoogleFonts.dmSans(
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF0D4DB3),
-          foregroundColor: Colors.white,
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
+  return SizedBox(
+    width: double.infinity,
+    height: 52,
+    child: ElevatedButton.icon(
+      onPressed: () {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const TimerScreen()),
+          (route) => route.isFirst,
+        );
+      },
+      icon: const Icon(Icons.timer_outlined, size: 18),
+      label: Text(
+        'Go to Timer',
+        style: GoogleFonts.dmSans(
+          fontSize: 15,
+          fontWeight: FontWeight.w700,
         ),
       ),
-    );
-  }
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFF0D4DB3),
+        foregroundColor: Colors.white,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+    ),
+  );
+}
 
   Widget _buildRequestTimeAdjustmentButton() {
-    return SizedBox(
-      width: double.infinity,
-      height: 52,
-      child: ElevatedButton(
-        onPressed: () {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const TimeRequestScreen()),
-          );
-        },
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF0D4DB3),
-          foregroundColor: Colors.white,
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-        child: Text(
-          'Request Time Adjustment',
-          style: GoogleFonts.dmSans(
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
-          ),
+  return SizedBox(
+    width: double.infinity,
+    height: 52,
+    child: ElevatedButton(
+      onPressed: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const TimeRequestScreen()),
+        );
+      },
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFF0D4DB3),
+        foregroundColor: Colors.white,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
         ),
       ),
-    );
-  }
+      child: Text(
+        'Request Time Adjustment',
+        style: GoogleFonts.dmSans(
+          fontSize: 15,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    ),
+  );
+}
 
   Widget _buildErrorBanner() {
     return Padding(

@@ -1,8 +1,9 @@
 // lib/repositories/user_repository.dart
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../models/user_model.dart';
+
 import '../models/geofence_settings.dart';
+import '../models/user_model.dart';
 import '../services/firestore_service.dart';
 
 class UserRepository {
@@ -11,129 +12,117 @@ class UserRepository {
   UserRepository({FirestoreService? firestoreService})
       : _firestoreService = firestoreService ?? FirestoreService();
 
-  static const String _collection = 'users';
-
-  // ─────────────────────────────────────────────
-  // CREATE
-  // ─────────────────────────────────────────────
+  static const String collectionPath = 'users';
 
   Future<void> createUser(UserModel user) async {
     try {
       final data = {
         ...user.toMap(),
         'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
       };
+
       await _firestoreService.setDocument(
-        path: _collection,
+        path: collectionPath,
         docId: user.uid,
         data: data,
         merge: false,
       );
-    } catch (e) {
-      throw Exception('Failed to save user profile: $e');
+    } catch (_) {
+      throw Exception('Failed to save user profile.');
     }
   }
 
-  // ─────────────────────────────────────────────
-  // READ — Role only (single attempt)
-  // ─────────────────────────────────────────────
+  Future<void> createUserIfMissing(UserModel user) async {
+    final existingUser = await getUserByUid(user.uid);
+
+    if (existingUser != null) return;
+
+    await createUser(user);
+  }
 
   Future<UserRole?> getUserRole(String uid) async {
     try {
-      final snapshot = await _firestoreService
-          .collection(_collection)
-          .doc(uid)
-          .get();
+      final data = await _firestoreService.getDocument(
+        path: collectionPath,
+        docId: uid,
+      );
 
-      if (!snapshot.exists || snapshot.data() == null) return null;
+      if (data == null) return null;
 
-      final rawRole = snapshot.data()!['role'] as String?;
-      if (rawRole == null) return null;
-
-      return UserRoleExtension.fromString(rawRole);
-    } catch (e) {
-      throw Exception('Failed to fetch user role: $e');
+      return UserRoleExtension.fromString(data['role']?.toString());
+    } catch (_) {
+      throw Exception('Failed to verify user role.');
     }
   }
 
-  // ─────────────────────────────────────────────
-  // READ — Role with retry (for AuthGate)
-  // ─────────────────────────────────────────────
-
-  Future<UserRole?> getUserRoleWithRetry(String uid, {int maxRetries = 4}) async {
-    const delays = [600, 1200, 2000, 3000]; // ms
+  Future<UserRole?> getUserRoleWithRetry(
+    String uid, {
+    int maxRetries = 4,
+  }) async {
+    const delays = <int>[600, 1200, 2000, 3000];
 
     for (int attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         final role = await getUserRole(uid);
         if (role != null) return role;
       } catch (_) {
-        // Ignore individual attempt errors — retry will handle it.
+        // Retry silently. AuthGate will show a clean message if all attempts fail.
       }
 
       if (attempt < maxRetries) {
         await Future.delayed(Duration(milliseconds: delays[attempt]));
       }
     }
-    return null; 
-  }
 
-  // ─────────────────────────────────────────────
-  // READ — Full profile
-  // ─────────────────────────────────────────────
+    return null;
+  }
 
   Future<UserModel?> getUserByUid(String uid) async {
     try {
       final data = await _firestoreService.getDocument(
-        path: _collection,
+        path: collectionPath,
         docId: uid,
       );
+
       if (data == null) return null;
+
       return UserModel.fromMap(data, id: uid);
-    } catch (e) {
-      throw Exception('Failed to fetch user profile: $e');
+    } catch (_) {
+      throw Exception('Failed to fetch user profile.');
     }
   }
 
-  // ─────────────────────────────────────────────
-  // READ — Stream (real-time)
-  // ─────────────────────────────────────────────
-
   Stream<UserModel?> streamUser(String uid) {
     return _firestoreService
-        .streamDocument(path: _collection, docId: uid)
-        .map((data) => data != null ? UserModel.fromMap(data, id: uid) : null);
+        .streamDocument(path: collectionPath, docId: uid)
+        .map((data) => data == null ? null : UserModel.fromMap(data, id: uid));
   }
-
-  // ─────────────────────────────────────────────
-  // UPDATE
-  // ─────────────────────────────────────────────
 
   Future<void> updateUser(String uid, Map<String, dynamic> fields) async {
     try {
       await _firestoreService.updateDocument(
-        path: _collection,
+        path: collectionPath,
         docId: uid,
-        data: fields,
+        data: {
+          ...fields,
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
       );
-    } catch (e) {
-      throw Exception('Failed to update user profile: $e');
+    } catch (_) {
+      throw Exception('Failed to update user profile.');
     }
   }
 
-  // ─────────────────────────────────────────────
-  // GEOFENCE SETTINGS FETCH
-  // ─────────────────────────────────────────────
-
   Future<GeofenceSettings> getGeofenceSettings(String uid) async {
     final user = await getUserByUid(uid);
-    
+
     if (user == null) {
       throw Exception('User profile not found.');
     }
 
-    if (user.assignedLatitude == null || 
-        user.assignedLongitude == null || 
+    if (user.assignedLatitude == null ||
+        user.assignedLongitude == null ||
         user.allowedRadius == null) {
       throw GeofenceNotAssignedException();
     }
@@ -147,30 +136,34 @@ class UserRepository {
   }
 
   Stream<List<UserModel>> streamInternUsers() {
-  return _firestoreService
-      .streamCollection(
-        path: _collection,
+    return _firestoreService
+        .streamCollection(
+          path: collectionPath,
+          field: 'role',
+          value: UserRole.intern.value,
+          orderBy: 'fullName',
+        )
+        .map(
+          (rows) => rows
+              .map((row) => UserModel.fromMap(row, id: row['id']?.toString()))
+              .toList(),
+        );
+  }
+
+  Future<List<UserModel>> getInternUsers() async {
+    try {
+      final rows = await _firestoreService.queryCollection(
+        path: collectionPath,
         field: 'role',
         value: UserRole.intern.value,
         orderBy: 'fullName',
-      )
-      .map(
-        (rows) => rows.map((row) => UserModel.fromMap(row, id: row['id'])).toList(),
       );
-}
 
-Future<List<UserModel>> getInternUsers() async {
-  try {
-    final rows = await _firestoreService.queryCollection(
-      path: _collection,
-      field: 'role',
-      value: UserRole.intern.value,
-      orderBy: 'fullName',
-    );
-
-    return rows.map((row) => UserModel.fromMap(row, id: row['id'])).toList();
-  } catch (e) {
-    throw Exception('Failed to fetch intern users: $e');
+      return rows
+          .map((row) => UserModel.fromMap(row, id: row['id']?.toString()))
+          .toList();
+    } catch (_) {
+      throw Exception('Failed to fetch intern users.');
+    }
   }
-}
 }

@@ -1,38 +1,24 @@
 // lib/main.dart
-//
-// RACE CONDITION FIX (Phase 3.1):
-//
-// WHAT WAS HAPPENING:
-//   Auth state changes → AuthGate's FutureBuilder fires instantly
-//   → getUserRole() returns null (Firestore write not committed yet)
-//   → auto sign-out → back to login
-//
-// THE FIX IN AuthGate:
-//   1. AuthGate now uses getUserRoleWithRetry() (via UserRepository)
-//      instead of getUserRole() directly, so it waits up to ~3s
-//      for the Firestore document to become readable.
-//   2. The loading screen stays visible during this wait — the user
-//      never sees a flash back to the login screen.
 
-import 'package:flutter/foundation.dart'
-    show kIsWeb, defaultTargetPlatform, TargetPlatform;
-import 'package:flutter/material.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'screens/intern_home_screen.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
+import 'package:flutter/material.dart';
+
 import 'models/user_model.dart';
-import 'services/auth_service.dart';
-import 'repositories/student_repository.dart';
 import 'repositories/attendance_repository.dart';
-import 'repositories/user_repository.dart';
+import 'repositories/live_location_repository.dart';
 import 'repositories/role_repository.dart';
+import 'repositories/student_repository.dart';
+import 'repositories/time_request_repository.dart';
+import 'repositories/user_repository.dart';
+import 'screens/admin_dashboard_layout.dart';
+import 'screens/intern_home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/web_login_screen.dart';
-import 'screens/admin_dashboard_layout.dart';
 import 'screens/web_unauthorized_screen.dart';
-
-import 'repositories/live_location_repository.dart';
-import 'repositories/time_request_repository.dart';
+import 'services/auth_service.dart';
 
 const FirebaseOptions _webFirebaseOptions = FirebaseOptions(
   apiKey: 'AIzaSyByaNJZjhXfedXhs-71GjazPYhegb36bBM',
@@ -44,7 +30,7 @@ const FirebaseOptions _webFirebaseOptions = FirebaseOptions(
   measurementId: 'G-QK59E8TEW8',
 );
 
-void main() async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   if (kIsWeb || defaultTargetPlatform == TargetPlatform.windows) {
@@ -58,25 +44,24 @@ void main() async {
 
 class AppServices extends InheritedWidget {
   final AuthService authService;
-final StudentRepository studentRepository;
-final AttendanceRepository attendanceRepository;
-final UserRepository userRepository;
-final RoleRepository roleRepository;
-final LiveLocationRepository liveLocationRepository;
-final TimeRequestRepository timeRequestRepository;
-  
+  final StudentRepository studentRepository;
+  final AttendanceRepository attendanceRepository;
+  final UserRepository userRepository;
+  final RoleRepository roleRepository;
+  final LiveLocationRepository liveLocationRepository;
+  final TimeRequestRepository timeRequestRepository;
 
- const AppServices({
-  super.key,
-  required this.authService,
-  required this.studentRepository,
-  required this.attendanceRepository,
-  required this.userRepository,
-  required this.roleRepository,
-  required this.liveLocationRepository,
-  required this.timeRequestRepository,
-  required super.child,
-});
+  const AppServices({
+    super.key,
+    required this.authService,
+    required this.studentRepository,
+    required this.attendanceRepository,
+    required this.userRepository,
+    required this.roleRepository,
+    required this.liveLocationRepository,
+    required this.timeRequestRepository,
+    required super.child,
+  });
 
   static AppServices of(BuildContext context) {
     final result = context.dependOnInheritedWidgetOfExactType<AppServices>();
@@ -94,18 +79,20 @@ class OjtApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AppServices(
-  authService: AuthService(),
-  studentRepository: StudentRepository(),
-  attendanceRepository: AttendanceRepository(),
-  userRepository: UserRepository(),
-  roleRepository: RoleRepository(),
-  liveLocationRepository: LiveLocationRepository(),
-  timeRequestRepository: TimeRequestRepository(),
-  child: MaterialApp(
+      authService: AuthService(),
+      studentRepository: StudentRepository(),
+      attendanceRepository: AttendanceRepository(),
+      userRepository: UserRepository(),
+      roleRepository: RoleRepository(),
+      liveLocationRepository: LiveLocationRepository(),
+      timeRequestRepository: TimeRequestRepository(),
+      child: MaterialApp(
         title: 'GeoAI OJT Monitoring System',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1565C0)),
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: const Color(0xFF1565C0),
+          ),
           useMaterial3: true,
         ),
         home: const AuthGate(),
@@ -114,78 +101,55 @@ class OjtApp extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// AuthGate
-//
-// ROUTING TABLE:
-//   Not logged in       → LoginScreen (mobile) / WebLoginScreen (web)
-//   Logged in, loading  → _LoadingScreen (spinner)
-//   intern  + mobile    → InternHomeScreen
-//   supervisor + web    → AdminDashboardLayout
-//   mismatch            → _RoleMismatchScreen (with Sign Out button)
-//   null role           → auto sign-out → back to login
-// ─────────────────────────────────────────────────────────────────────
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
 
   @override
   Widget build(BuildContext context) {
     final authService = AppServices.of(context).authService;
-    final userRepo = AppServices.of(context).userRepository;
+    final userRepository = AppServices.of(context).userRepository;
 
     return StreamBuilder<User?>(
       stream: authService.authStateChanges,
       builder: (context, authSnapshot) {
-        // Still connecting to Firebase
         if (authSnapshot.connectionState == ConnectionState.waiting) {
           return const _LoadingScreen();
         }
 
-        // Not logged in
-        if (!authSnapshot.hasData || authSnapshot.data == null) {
+        final firebaseUser = authSnapshot.data;
+
+        if (firebaseUser == null) {
           return kIsWeb ? const WebLoginScreen() : const LoginScreen();
         }
 
-        // Logged in — fetch role
-        final uid = authSnapshot.data!.uid;
-
         return FutureBuilder<UserRole?>(
-          // Use the retry version so we survive Firestore propagation lag.
-          // This is the key fix — getUserRoleWithRetry waits up to ~3.5s
-          // before giving up, bridging the gap between Auth and Firestore.
-          future: userRepo.getUserRoleWithRetry(uid),
+          future: userRepository.getUserRoleWithRetry(firebaseUser.uid),
           builder: (context, roleSnapshot) {
-            // Fetching role
             if (roleSnapshot.connectionState == ConnectionState.waiting) {
-              return const _LoadingScreen(message: 'Verifying your account...');
+              return const _LoadingScreen(
+                message: 'Verifying your account...',
+              );
             }
 
-            // Fetch error
             if (roleSnapshot.hasError) {
-              return _RoleMismatchScreen(
+              return _AccessProblemScreen(
+                title: 'Account Check Failed',
                 message:
-                    'Could not verify your account. Please sign in again.\n\n'
-                    'Error: ${roleSnapshot.error}',
-                authService: authService,
+                    'We could not verify your account right now. Please sign in again.',
+                buttonText: 'Sign Out',
+                onPressed: authService.signOut,
               );
             }
 
             final role = roleSnapshot.data;
 
-            // No profile found even after retries
-            // → sign out and return to login cleanly
             if (role == null) {
-              WidgetsBinding.instance.addPostFrameCallback((_) async {
-                await authService.signOut();
-              });
-              return const _LoadingScreen(message: 'Signing out...');
-            }
-
-            // ── Route correctly ───────────────────────────────────
-
-            if (kIsWeb && role == UserRole.supervisor) {
-              return const AdminDashboardLayout(
-                activeRoute: 'Live Monitoring',
+              return _AccessProblemScreen(
+                title: 'Profile Not Found',
+                message:
+                    'Your login is valid, but your user profile was not found. Please contact your administrator.',
+                buttonText: 'Sign Out',
+                onPressed: authService.signOut,
               );
             }
 
@@ -193,21 +157,23 @@ class AuthGate extends StatelessWidget {
               return const InternHomeScreen();
             }
 
-            // Role / platform mismatch — never a dead end
-            final mismatchMessage = kIsWeb
-                ? 'This portal is for Supervisors only.\n'
-                    'Please use the mobile app to access your Intern account.'
-                : 'This app is for Interns only.\n'
-                    'Please use the web portal to access your Supervisor account.';
+            if (kIsWeb && role == UserRole.supervisor) {
+              return const AdminDashboardLayout(
+                activeRoute: 'Live Monitoring',
+              );
+            }
 
-           if (kIsWeb) {
-  return const WebUnauthorizedScreen();
-}
+            if (kIsWeb) {
+              return const WebUnauthorizedScreen();
+            }
 
-return _RoleMismatchScreen(
-  message: mismatchMessage,
-  authService: authService,
-);
+            return _AccessProblemScreen(
+              title: 'Access Denied',
+              message:
+                  'This app is for Intern accounts only. Please use the web portal for Supervisor accounts.',
+              buttonText: 'Sign Out',
+              onPressed: authService.signOut,
+            );
           },
         );
       },
@@ -215,12 +181,12 @@ return _RoleMismatchScreen(
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// _LoadingScreen
-// ─────────────────────────────────────────────────────────────────────
 class _LoadingScreen extends StatelessWidget {
   final String? message;
-  const _LoadingScreen({this.message});
+
+  const _LoadingScreen({
+    this.message,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -238,7 +204,10 @@ class _LoadingScreen extends StatelessWidget {
               Text(
                 message!,
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                style: TextStyle(
+                  color: Colors.grey[600],
+                  fontSize: 13,
+                ),
               ),
             ],
           ],
@@ -248,15 +217,18 @@ class _LoadingScreen extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// _RoleMismatchScreen
-// Always shows a Sign Out button — user is never stuck.
-// ─────────────────────────────────────────────────────────────────────
-class _RoleMismatchScreen extends StatelessWidget {
+class _AccessProblemScreen extends StatelessWidget {
+  final String title;
   final String message;
-  final AuthService authService;
-  const _RoleMismatchScreen(
-      {required this.message, required this.authService});
+  final String buttonText;
+  final Future<void> Function() onPressed;
+
+  const _AccessProblemScreen({
+    required this.title,
+    required this.message,
+    required this.buttonText,
+    required this.onPressed,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -288,38 +260,48 @@ class _RoleMismatchScreen extends StatelessWidget {
                   color: const Color(0xFFFFEBEE),
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: const Icon(Icons.block_rounded,
-                    color: Color(0xFFC62828), size: 28),
+                child: const Icon(
+                  Icons.block_rounded,
+                  color: Color(0xFFC62828),
+                  size: 28,
+                ),
               ),
               const SizedBox(height: 16),
-              const Text(
-                'Access Denied',
-                style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.black87),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.black87,
+                ),
               ),
               const SizedBox(height: 12),
               Text(
                 message,
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                    fontSize: 13, color: Colors.grey[600], height: 1.5),
+                  fontSize: 13,
+                  color: Colors.grey[600],
+                  height: 1.5,
+                ),
               ),
               const SizedBox(height: 24),
               SizedBox(
                 width: double.infinity,
                 height: 46,
                 child: ElevatedButton.icon(
-                  onPressed: () => authService.signOut(),
+                  onPressed: onPressed,
                   icon: const Icon(Icons.logout_rounded, size: 18),
-                  label: const Text('Sign Out',
-                      style: TextStyle(fontWeight: FontWeight.w700)),
+                  label: Text(
+                    buttonText,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF1565C0),
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10)),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                     elevation: 0,
                   ),
                 ),
@@ -331,4 +313,3 @@ class _RoleMismatchScreen extends StatelessWidget {
     );
   }
 }
-

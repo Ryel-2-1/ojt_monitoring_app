@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import 'intern_home_screen.dart';
+import '../main.dart';
 import 'timer_screen.dart';
+import 'profile_screen.dart';
 
 class TimesheetScreen extends StatefulWidget {
   const TimesheetScreen({super.key});
@@ -14,38 +15,31 @@ class TimesheetScreen extends StatefulWidget {
 class _TimesheetScreenState extends State<TimesheetScreen> {
   int _selectedNavIndex = 2;
 
-  void _handleBottomNavTap(int index) {
-    if (index == _selectedNavIndex) return;
+ void _handleBottomNavTap(int index) {
+  if (index == 2) return;
 
-    setState(() => _selectedNavIndex = index);
+  switch (index) {
+    case 0:
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const AuthGate()),
+        (route) => false,
+      );
+      break;
 
-    switch (index) {
-      case 0:
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const InternHomeScreen()),
-        );
-        break;
-      case 1:
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const TimerScreen()),
-        );
-        break;
-      case 2:
-        break;
-      case 3:
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Profile page coming soon.',
-              style: GoogleFonts.dmSans(fontSize: 13),
-            ),
-          ),
-        );
-        break;
-    }
+    case 1:
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const TimerScreen()),
+        (route) => route.isFirst,
+      );
+      break;
+
+    case 3:
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const ProfileScreen()),
+      );
+      break;
   }
+}
 
   @override
   Widget build(BuildContext context) {
