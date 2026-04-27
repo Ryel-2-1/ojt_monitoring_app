@@ -12,6 +12,7 @@ import '../services/location_service.dart' as app_location;
 
 import 'timesheet_screen.dart';
 import 'profile_screen.dart';
+import '../repositories/attendance_repository.dart';
 
 class TimerScreen extends StatefulWidget {
   const TimerScreen({super.key});
@@ -101,16 +102,15 @@ class _TimerScreenState extends State<TimerScreen>
       _requiredOjtHours = user?.requiredOjtHours ?? 0;
       _completedOjtHours = _calculateCompletedHours(allLogs);
 
-      final logs = await services.attendanceRepository.getTodayAttendance(uid);
-      bool alreadyClockedIn = false;
+      final latestLog = await services.attendanceRepository.getLatestLog(uid);
+bool alreadyClockedIn = false;
 
-      if (logs.isNotEmpty && logs.first.status == AttendanceStatus.clockIn) {
-        alreadyClockedIn = true;
-        _clockInTime = logs.first.timestamp;
-        _startTimer(_clockInTime!);
-        await _startLiveTracking();
-      }
-
+if (latestLog?.status == AttendanceStatus.clockIn) {
+  alreadyClockedIn = true;
+  _clockInTime = latestLog!.timestamp;
+  _startTimer(_clockInTime!);
+  await _startLiveTracking();
+}
       if (mounted) {
         setState(() {
           _isClockedIn = alreadyClockedIn;
@@ -273,62 +273,74 @@ class _TimerScreenState extends State<TimerScreen>
     await _handleClockInOut(AttendanceStatus.clockIn);
   }
 
-  Future<void> _handleStop() async {
-    if (!_isClockedIn) return;
+ Future<void> _handleStop() async {
+  if (!_isClockedIn) return;
+
+  setState(() {
+    _isLoading = true;
+    _errorMessage = null;
+    _statusMessage = 'Logging clock-out...';
+  });
+
+  try {
+    final services = AppServices.of(context);
+    final currentUser = services.authService.currentUser;
+
+    if (currentUser == null) {
+      throw Exception('User not authenticated.');
+    }
+
+    await _locationService?.ensurePermissions();
+
+    final position = await Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
+    );
+
+    await services.attendanceRepository.logAttendance(
+      uid: currentUser.uid,
+      status: AttendanceStatus.clockOut,
+      locationCoords: GeoPoint(position.latitude, position.longitude),
+    );
+
+    await services.liveLocationRepository.upsertLiveLocation(
+      uid: currentUser.uid,
+      fullName: currentUser.displayName ?? 'Intern',
+      email: currentUser.email ?? '',
+      latitude: position.latitude,
+      longitude: position.longitude,
+      accuracy: position.accuracy,
+      isClockedIn: false,
+      lastStatus: 'Clock-Out',
+    );
+
+    await _stopLiveTracking();
+    await _refreshCompletedHours();
+
+    if (!mounted) return;
 
     setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-      _statusMessage = 'Logging clock-out...';
+      _isClockedIn = false;
+      _statusMessage = 'Clock-Out logged successfully.';
+      _isLoading = false;
     });
 
-    try {
-      final services = AppServices.of(context);
-      final currentUser = services.authService.currentUser;
-      if (currentUser == null) {
-        throw Exception('User not authenticated.');
-      }
-
-      await _locationService?.ensurePermissions();
-
-      final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-
-      await services.attendanceRepository.logAttendance(
-        uid: currentUser.uid,
-        status: AttendanceStatus.clockOut,
-        locationCoords: GeoPoint(position.latitude, position.longitude),
-      );
-
-      await services.liveLocationRepository.upsertLiveLocation(
-        uid: currentUser.uid,
-        fullName: currentUser.displayName ?? 'Intern',
-        email: currentUser.email ?? '',
-        latitude: position.latitude,
-        longitude: position.longitude,
-        accuracy: position.accuracy,
-        isClockedIn: false,
-        lastStatus: 'Clock-Out',
-      );
-
-      await _stopLiveTracking();
-      await _refreshCompletedHours();
-
-      if (!mounted) return;
-
-      setState(() {
-        _isClockedIn = false;
-        _statusMessage = 'Clock-Out logged successfully.';
-        _isLoading = false;
-      });
-
-      _stopTimer();
-    } catch (e) {
-      if (!mounted) return;
-      _showError('Clock-out failed: $e');
-    }
+    _stopTimer();
+  } on AttendanceTransitionException catch (e) {
+    if (!mounted) return;
+    _showError(e.message);
+  } on app_location.LocationServiceDisabledException catch (e) {
+    if (!mounted) return;
+    _showError(e.toString());
+  } on app_location.LocationPermissionDeniedException catch (e) {
+    if (!mounted) return;
+    _showError(e.toString());
+  } catch (e) {
+    if (!mounted) return;
+    _showError('Clock-out failed: $e');
   }
+}
+
+
 
   Future<void> _handleAutoStop(Position position) async {
     if (!_isClockedIn || _isAutoStopping) return;
@@ -373,15 +385,20 @@ class _TimerScreenState extends State<TimerScreen>
       });
 
       _stopTimer();
-    } catch (e) {
-      if (!mounted) return;
-      _showError('Automatic clock-out failed: $e');
-    } finally {
-      _isAutoStopping = false;
-    }
+    } on AttendanceTransitionException catch (e) {
+  if (!mounted) return;
+  _showError(e.message);
+} catch (_) {
+  if (!mounted) return;
+  _showError(
+    'Automatic clock-out failed. Please contact your supervisor if this continues.',
+  );
+} finally {
+  _isAutoStopping = false;
+}
   }
 
-  Future<void> _handleClockInOut(AttendanceStatus status) async {
+   Future<void> _handleClockInOut(AttendanceStatus status) async {
     if (_targetLat == null || _targetLng == null) {
       _showError('Geofence configuration is missing.');
       return;
@@ -428,8 +445,14 @@ class _TimerScreenState extends State<TimerScreen>
       if (mounted) _showError(e.toString());
     } on app_location.LocationPermissionDeniedException catch (e) {
       if (mounted) _showError(e.toString());
-    } catch (e) {
-      if (mounted) _showError('Clock action failed: $e');
+    } on AttendanceTransitionException catch (e) {
+      if (mounted) _showError(e.message);
+    } catch (_) {
+      if (mounted) {
+        _showError(
+          'Clock action failed. Please check your location and try again.',
+        );
+      }
     }
   }
 

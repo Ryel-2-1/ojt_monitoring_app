@@ -39,31 +39,30 @@ class AttendanceModel {
     this.locationCoords,
   });
 
-  Map<String, dynamic> toMap() => {
-        'uid': uid,
-        // Always written as a server timestamp so all clients share the
-        // same authoritative time regardless of local clock drift.
-        'timestamp': FieldValue.serverTimestamp(),
-        'status': status.value,
-        if (locationCoords != null) 'location_coords': locationCoords,
-      };
+  Map<String, dynamic> toMap() {
+    return {
+      'uid': uid,
+      'timestamp': Timestamp.fromDate(timestamp),
+      'status': status.value,
+      'location_coords': locationCoords,
+    };
+  }
 
   factory AttendanceModel.fromMap(Map<String, dynamic> map, {String? id}) {
     final rawTimestamp = map['timestamp'];
-    // Firestore returns null for serverTimestamp() on the optimistic local
-    // snapshot that fires immediately after a write (before the server
-    // acknowledges). We fall back to DateTime.now() in that case — the
-    // real timestamp arrives on the next snapshot within milliseconds.
+
     final DateTime parsedTimestamp = rawTimestamp is Timestamp
         ? rawTimestamp.toDate()
-        : DateTime.now();
+        : rawTimestamp is DateTime
+            ? rawTimestamp
+            : DateTime.now();
 
     return AttendanceModel(
       id: id,
-      uid: map['uid'] ?? '',
+      uid: map['uid']?.toString() ?? '',
       timestamp: parsedTimestamp,
       status: AttendanceStatusExtension.fromString(
-        map['status'] ?? 'Clock-In',
+        map['status']?.toString() ?? 'Clock-In',
       ),
       locationCoords: map['location_coords'] as GeoPoint?,
     );

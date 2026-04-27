@@ -60,7 +60,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                 if (userSnapshot.hasError) {
                   return Center(
                     child: Text(
-                      'Failed to load interns: ${userSnapshot.error}',
+                      'Failed to load interns. Please check permissions and try again.',
                       style: GoogleFonts.plusJakartaSans(
                         color: Colors.red[700],
                         fontSize: 13,
@@ -74,14 +74,16 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                 return StreamBuilder<Map<String, AttendanceModel>>(
                   stream: attendanceRepo.streamLatestLogsByUser(),
                   builder: (context, logSnapshot) {
-                    if (logSnapshot.connectionState == ConnectionState.waiting) {
+                    if (logSnapshot.connectionState ==
+                        ConnectionState.waiting) {
                       return const Center(child: CircularProgressIndicator());
                     }
 
                     if (logSnapshot.hasError) {
                       return Center(
                         child: Text(
-                          'Failed to load activity: ${logSnapshot.error}',
+                          'Failed to load session times. Please check permissions and try again.',
+                          textAlign: TextAlign.center,
                           style: GoogleFonts.plusJakartaSans(
                             color: Colors.red[700],
                             fontSize: 13,
@@ -92,40 +94,20 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
 
                     final latestLogs = logSnapshot.data ?? {};
 
-                    final activeUsers = users.where((user) {
-                      final latest = latestLogs[user.uid];
-                      return latest?.status == AttendanceStatus.clockIn;
-                    }).toList();
-
-                    final filteredActiveUsers = activeUsers.where((user) {
-                      final q = _searchQuery.trim().toLowerCase();
-                      final hasGeofence = user.assignedLatitude != null &&
-                          user.assignedLongitude != null &&
-                          user.allowedRadius != null;
-
-                      if (_selectedFilter == 'Assigned Geofence Only' &&
-                          !hasGeofence) {
-                        return false;
-                      }
-
-                      if (q.isEmpty) return true;
-
-                      return user.fullName.toLowerCase().contains(q) ||
-                          user.email.toLowerCase().contains(q);
-                    }).toList();
-
                     return StreamBuilder<List<LiveLocationModel>>(
                       stream: liveLocationRepo.streamActiveLocations(),
                       builder: (context, locationSnapshot) {
                         if (locationSnapshot.connectionState ==
                             ConnectionState.waiting) {
-                          return const Center(child: CircularProgressIndicator());
+                          return const Center(
+                            child: CircularProgressIndicator(),
+                          );
                         }
 
                         if (locationSnapshot.hasError) {
                           return Center(
                             child: Text(
-                              'Failed to load live locations: ${locationSnapshot.error}',
+                              'Failed to load live locations. Please check permissions and try again.',
                               textAlign: TextAlign.center,
                               style: GoogleFonts.plusJakartaSans(
                                 fontSize: 13,
@@ -136,16 +118,49 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                         }
 
                         final allLocations = locationSnapshot.data ?? [];
-                        final activeUids =
-                            filteredActiveUsers.map((u) => u.uid).toSet();
+
+                        final liveUids = allLocations
+                            .map((location) => location.uid)
+                            .toSet();
+
+                        final liveUsers = users.where((user) {
+                          return liveUids.contains(user.uid);
+                        }).toList();
+
+                        final filteredActiveUsers = liveUsers.where((user) {
+                          final q = _searchQuery.trim().toLowerCase();
+
+                          final hasGeofence =
+                              user.assignedLatitude != null &&
+                                  user.assignedLongitude != null &&
+                                  user.allowedRadius != null;
+
+                          if (_selectedFilter == 'Assigned Geofence Only' &&
+                              !hasGeofence) {
+                            return false;
+                          }
+
+                          if (q.isEmpty) return true;
+
+                          return user.fullName.toLowerCase().contains(q) ||
+                              user.email.toLowerCase().contains(q);
+                        }).toList();
+
+                        final filteredActiveUids = filteredActiveUsers
+                            .map((user) => user.uid)
+                            .toSet();
 
                         final filteredLocations = allLocations.where((location) {
-                          if (!activeUids.contains(location.uid)) return false;
+                          if (!filteredActiveUids.contains(location.uid)) {
+                            return false;
+                          }
 
                           final q = _searchQuery.trim().toLowerCase();
                           if (q.isEmpty) return true;
 
-                          return location.fullName.toLowerCase().contains(q) ||
+                          return location.fullName
+                                  .toLowerCase()
+                                  .contains(q) ||
                               location.email.toLowerCase().contains(q);
                         }).toList();
 
@@ -162,12 +177,17 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                               Expanded(
                                 flex: 5,
                                 child: Padding(
-                                  padding:
-                                      const EdgeInsets.fromLTRB(20, 18, 14, 18),
+                                  padding: const EdgeInsets.fromLTRB(
+                                    20,
+                                    18,
+                                    14,
+                                    18,
+                                  ),
                                   child: Column(
                                     children: [
                                       _buildMapHeaderCard(
-                                          filteredLocations.length),
+                                        filteredLocations.length,
+                                      ),
                                       const SizedBox(height: 16),
                                       Expanded(
                                         child: _buildLiveMapPanel(
@@ -186,8 +206,12 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                               Expanded(
                                 flex: 3,
                                 child: Padding(
-                                  padding:
-                                      const EdgeInsets.fromLTRB(16, 18, 20, 18),
+                                  padding: const EdgeInsets.fromLTRB(
+                                    16,
+                                    18,
+                                    20,
+                                    18,
+                                  ),
                                   child: Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
@@ -199,6 +223,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                                       Expanded(
                                         child: _buildActiveSessionsList(
                                           filteredActiveUsers,
+                                          filteredLocations,
                                           latestLogs,
                                         ),
                                       ),
@@ -339,10 +364,10 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
+            const Icon(
               Icons.radar_rounded,
               size: 18,
-              color: const Color(0xFF0D4DB3),
+              color: Color(0xFF0D4DB3),
             ),
             const SizedBox(width: 10),
             Column(
@@ -395,10 +420,12 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
     }).toList();
 
     final geofenceCircles = activeUsers
-        .where((user) =>
-            user.assignedLatitude != null &&
-            user.assignedLongitude != null &&
-            user.allowedRadius != null)
+        .where(
+          (user) =>
+              user.assignedLatitude != null &&
+              user.assignedLongitude != null &&
+              user.allowedRadius != null,
+        )
         .map(
           (user) => CircleMarker(
             point: LatLng(
@@ -572,9 +599,8 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
           color: filled ? const Color(0xFF0D4DB3) : Colors.white,
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: filled
-                ? const Color(0xFF0D4DB3)
-                : const Color(0xFFE7ECF3),
+            color:
+                filled ? const Color(0xFF0D4DB3) : const Color(0xFFE7ECF3),
           ),
           boxShadow: [
             BoxShadow(
@@ -626,6 +652,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
 
   Widget _buildActiveSessionsList(
     List<UserModel> activeUsers,
+    List<LiveLocationModel> activeLocations,
     Map<String, AttendanceModel> latestLogs,
   ) {
     if (activeUsers.isEmpty) {
@@ -640,15 +667,28 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
       );
     }
 
+    final locationByUid = {
+      for (final location in activeLocations) location.uid: location,
+    };
+
     return ListView.separated(
       itemCount: activeUsers.length,
       separatorBuilder: (_, __) => const SizedBox(height: 12),
       itemBuilder: (context, index) {
         final user = activeUsers[index];
-        final latest = latestLogs[user.uid];
-        final sessionText = latest == null
-            ? '--:--:--'
-            : _formatElapsed(DateTime.now().difference(latest.timestamp));
+        final location = locationByUid[user.uid];
+        final latestLog = latestLogs[user.uid];
+
+        final sessionTime = latestLog?.status == AttendanceStatus.clockIn
+            ? _formatElapsed(DateTime.now().difference(latestLog!.timestamp))
+            : 'Active';
+
+        final pingText = location == null
+            ? 'Ping unavailable'
+            : _formatLastUpdated(location.updatedAt).replaceFirst(
+                'Updated ',
+                'Ping: ',
+              );
 
         final hasGeofence = user.assignedLatitude != null &&
             user.assignedLongitude != null &&
@@ -658,7 +698,8 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
           initials: _initialsOf(user.fullName),
           name: user.fullName,
           company: hasGeofence ? 'Geofence Configured' : user.email,
-          timeLabel: sessionText,
+          sessionTime: sessionTime,
+          pingText: pingText,
           statusColor: const Color(0xFF14A44D),
         );
       },
@@ -669,7 +710,8 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
     required String initials,
     required String name,
     required String company,
-    required String timeLabel,
+    required String sessionTime,
+    required String pingText,
     required Color statusColor,
   }) {
     return Container(
@@ -732,36 +774,59 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.10),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.schedule_rounded,
-                        size: 12,
-                        color: statusColor,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        timeLabel,
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: statusColor,
-                        ),
-                      ),
-                    ],
-                  ),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    _buildStatusChip(
+                      icon: Icons.schedule_rounded,
+                      text: sessionTime,
+                      color: statusColor,
+                    ),
+                    _buildStatusChip(
+                      icon: Icons.location_on_outlined,
+                      text: pingText,
+                      color: const Color(0xFF0D4DB3),
+                    ),
+                  ],
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusChip({
+    required IconData icon,
+    required String text,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 10,
+        vertical: 5,
+      ),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 12,
+            color: color,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: color,
             ),
           ),
         ],
@@ -843,12 +908,32 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
     final parts = name.trim().split(RegExp(r'\s+'));
     if (parts.isEmpty || parts.first.isEmpty) return 'U';
     if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
+
     return (parts.first.substring(0, 1) + parts.last.substring(0, 1))
         .toUpperCase();
   }
 
+  String _formatLastUpdated(DateTime updatedAt) {
+    final difference = DateTime.now().difference(updatedAt);
+
+    if (difference.inSeconds < 60) {
+      return 'Updated just now';
+    }
+
+    if (difference.inMinutes < 60) {
+      return 'Updated ${difference.inMinutes}m ago';
+    }
+
+    if (difference.inHours < 24) {
+      return 'Updated ${difference.inHours}h ago';
+    }
+
+    return 'Updated ${difference.inDays}d ago';
+  }
+
   String _formatElapsed(Duration duration) {
-    String pad(int n) => n.toString().padLeft(2, '0');
+    String pad(int value) => value.toString().padLeft(2, '0');
+
     return '${pad(duration.inHours)}:${pad(duration.inMinutes.remainder(60))}:${pad(duration.inSeconds.remainder(60))}';
   }
 }

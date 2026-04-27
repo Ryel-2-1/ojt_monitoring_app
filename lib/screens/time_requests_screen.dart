@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../main.dart';
 import '../models/time_request_model.dart';
+import '../repositories/time_request_repository.dart';
 
 class TimeRequestsScreen extends StatefulWidget {
   const TimeRequestsScreen({super.key});
@@ -114,12 +115,19 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
           ),
         ),
       );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to review request: $e')),
-      );
-    }
+    } on TimeRequestReviewException catch (e) {
+  if (!mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(content: Text(e.message)),
+  );
+} catch (_) {
+  if (!mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(
+      content: Text('Failed to review request. Please try again.'),
+    ),
+  );
+}
   }
 
   Color _statusColor(TimeRequestStatus status) {

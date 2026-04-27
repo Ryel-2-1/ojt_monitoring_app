@@ -5,6 +5,7 @@ import '../main.dart';
 import '../models/user_model.dart';
 import 'timer_screen.dart';
 import 'timesheet_screen.dart';
+import '../models/attendance_model.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -16,6 +17,8 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   int _selectedNavIndex = 3;
 
+  double _completedOjtHours = 0;
+bool _isLoadingProgress = true;
   void _handleBottomNavTap(int index) {
     if (index == _selectedNavIndex) return;
 
@@ -46,89 +49,226 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  Future<void> _handleSignOut() async {
-    final shouldSignOut = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          title: Text(
-            'Sign out?',
-            style: GoogleFonts.dmSans(
-              fontWeight: FontWeight.w700,
-              color: const Color(0xFF0D1B2A),
-            ),
-          ),
-          content: Text(
-            'You will be returned to the login screen.',
-            style: GoogleFonts.dmSans(
-              fontSize: 13,
-              color: Colors.grey[700],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: Text(
-                'Cancel',
-                style: GoogleFonts.dmSans(
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey[700],
-                ),
-              ),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF0D4DB3),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              child: Text(
-                'Sign Out',
-                style: GoogleFonts.dmSans(fontWeight: FontWeight.w700),
-              ),
-            ),
-          ],
-        );
-      },
-    );
 
-    if (shouldSignOut != true || !mounted) return;
+  Future<void> _loadCompletedHours(String uid) async {
+  try {
+    final services = AppServices.of(context);
+    final logs = await services.attendanceRepository.getAttendanceByStudent(uid);
 
-    try {
-      await AppServices.of(context).authService.signOut();
+    if (!mounted) return;
 
-      if (!mounted) return;
+    setState(() {
+      _completedOjtHours = _calculateCompletedHours(logs);
+      _isLoadingProgress = false;
+    });
+  } catch (_) {
+    if (!mounted) return;
 
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const AuthGate()),
-        (route) => false,
-      );
-    } catch (_) {
-      if (!mounted) return;
+    setState(() {
+      _completedOjtHours = 0;
+      _isLoadingProgress = false;
+    });
+  }
+}
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Failed to sign out. Please try again.',
-            style: GoogleFonts.dmSans(fontSize: 13),
-          ),
-        ),
-      );
+double _calculateCompletedHours(List<AttendanceModel> logs) {
+  final sorted = [...logs]..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+
+  double totalHours = 0;
+  DateTime? lastClockIn;
+
+  for (final log in sorted) {
+    if (log.status == AttendanceStatus.clockIn) {
+      lastClockIn = log.timestamp;
+    } else if (log.status == AttendanceStatus.clockOut && lastClockIn != null) {
+      totalHours += log.timestamp.difference(lastClockIn).inMinutes / 60.0;
+      lastClockIn = null;
     }
   }
 
+  return totalHours;
+}
+
+ Future<void> _handleSignOut() async {
+  final services = AppServices.of(context);
+  final currentUser = services.authService.currentUser;
+
+  if (currentUser == null) return;
+
+  try {
+    final isClockedIn =
+        await services.attendanceRepository.isCurrentlyClockedIn(
+      currentUser.uid,
+    );
+
+    if (isClockedIn) {
+      if (!mounted) return;
+
+      final goToTimer = await showDialog<bool>(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: Text(
+              'Active session detected',
+              style: GoogleFonts.dmSans(
+                fontWeight: FontWeight.w800,
+                color: const Color(0xFF0D1B2A),
+              ),
+            ),
+            content: Text(
+              'You are currently clocked in. Please clock out first before signing out.',
+              style: GoogleFonts.dmSans(
+                fontSize: 13,
+                color: Colors.grey[700],
+                height: 1.45,
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: Text(
+                  'Cancel',
+                  style: GoogleFonts.dmSans(
+                    fontWeight: FontWeight.w700,
+                    color: Colors.grey[700],
+                  ),
+                ),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF0D4DB3),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                child: Text(
+                  'Go to Timer',
+                  style: GoogleFonts.dmSans(fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (goToTimer == true && mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const TimerScreen()),
+          (route) => route.isFirst,
+        );
+      }
+
+      return;
+    }
+  } catch (_) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Could not verify your session. Please try again.',
+          style: GoogleFonts.dmSans(fontSize: 13),
+        ),
+      ),
+    );
+
+    return;
+  }
+
+  final shouldSignOut = await showDialog<bool>(
+    context: context,
+    builder: (context) {
+      return AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        title: Text(
+          'Sign out?',
+          style: GoogleFonts.dmSans(
+            fontWeight: FontWeight.w700,
+            color: const Color(0xFF0D1B2A),
+          ),
+        ),
+        content: Text(
+          'You will be returned to the login screen.',
+          style: GoogleFonts.dmSans(
+            fontSize: 13,
+            color: Colors.grey[700],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(
+              'Cancel',
+              style: GoogleFonts.dmSans(
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[700],
+              ),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0D4DB3),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            child: Text(
+              'Sign Out',
+              style: GoogleFonts.dmSans(fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      );
+    },
+  );
+
+  if (shouldSignOut != true || !mounted) return;
+
+  try {
+    await services.authService.signOut();
+
+    if (!mounted) return;
+
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const AuthGate()),
+      (route) => false,
+    );
+  } catch (_) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Failed to sign out. Please try again.',
+          style: GoogleFonts.dmSans(fontSize: 13),
+        ),
+      ),
+    );
+  }
+}
   @override
   Widget build(BuildContext context) {
     final services = AppServices.of(context);
     final firebaseUser = services.authService.currentUser;
 
     final uid = firebaseUser?.uid;
+
+    if (uid != null && _isLoadingProgress) {
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (mounted) {
+      _loadCompletedHours(uid);
+    }
+  });
+}
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
@@ -318,48 +458,146 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildProgressCard(UserModel? user) {
-    final requiredHours = user?.requiredOjtHours ?? 0;
+  final requiredHours = user?.requiredOjtHours ?? 0;
+  final completedHours = _completedOjtHours;
+  final remainingHours = requiredHours <= 0
+      ? 0.0
+      : (requiredHours - completedHours).clamp(0.0, requiredHours.toDouble());
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        color: const Color(0xFF0D4DB3),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        children: [
-          Text(
-            'TOTAL REQUIRED HOURS',
-            style: GoogleFonts.dmSans(
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-              color: Colors.white70,
-              letterSpacing: 1.1,
+  final progress = requiredHours <= 0
+      ? 0.0
+      : (completedHours / requiredHours).clamp(0.0, 1.0);
+
+  final progressPercent = (progress * 100).toStringAsFixed(1);
+
+  return Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(22),
+    decoration: BoxDecoration(
+      color: const Color(0xFF0D4DB3),
+      borderRadius: BorderRadius.circular(16),
+    ),
+    child: Column(
+      children: [
+        Text(
+          'TOTAL PROGRESS',
+          style: GoogleFonts.dmSans(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            color: Colors.white70,
+            letterSpacing: 1.1,
+          ),
+        ),
+        const SizedBox(height: 18),
+        Container(
+          width: 104,
+          height: 104,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: Colors.white.withOpacity(0.35),
+              width: 8,
             ),
           ),
-          const SizedBox(height: 16),
-          Text(
-            requiredHours <= 0 ? 'Not set' : '$requiredHours hrs',
-            style: GoogleFonts.dmSans(
-              fontSize: 30,
-              fontWeight: FontWeight.w900,
-              color: Colors.white,
-            ),
+          child: Center(
+            child: _isLoadingProgress
+                ? const SizedBox(
+                    width: 26,
+                    height: 26,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      color: Colors.white,
+                    ),
+                  )
+                : Text(
+                    '$progressPercent%',
+                    style: GoogleFonts.dmSans(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white,
+                    ),
+                  ),
           ),
-          const SizedBox(height: 8),
-          Text(
-            'Completed hours will be connected after the timesheet cleanup.',
-            textAlign: TextAlign.center,
-            style: GoogleFonts.dmSans(
-              fontSize: 12,
-              color: Colors.white70,
-            ),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          requiredHours <= 0
+              ? 'Required OJT hours not set.'
+              : '${completedHours.toStringAsFixed(1)} of $requiredHours hours completed',
+          textAlign: TextAlign.center,
+          style: GoogleFonts.dmSans(
+            fontSize: 12,
+            color: Colors.white70,
+            fontWeight: FontWeight.w600,
           ),
-        ],
-      ),
-    );
-  }
+        ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Expanded(
+              child: _buildProgressMiniStat(
+                label: 'Required',
+                value: requiredHours <= 0 ? 'Not set' : '$requiredHours h',
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _buildProgressMiniStat(
+                label: 'Completed',
+                value: '${completedHours.toStringAsFixed(1)} h',
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _buildProgressMiniStat(
+                label: 'Remaining',
+                value: '${remainingHours.toStringAsFixed(1)} h',
+              ),
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+}
+
+
+Widget _buildProgressMiniStat({
+  required String label,
+  required String value,
+}) {
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+    decoration: BoxDecoration(
+      color: Colors.white.withOpacity(0.12),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Column(
+      children: [
+        Text(
+          label,
+          textAlign: TextAlign.center,
+          style: GoogleFonts.dmSans(
+            fontSize: 9,
+            fontWeight: FontWeight.w700,
+            color: Colors.white60,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          textAlign: TextAlign.center,
+          style: GoogleFonts.dmSans(
+            fontSize: 11,
+            fontWeight: FontWeight.w900,
+            color: Colors.white,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 
   Widget _buildAccountCard(UserModel? user) {
     return _buildCard(
@@ -383,8 +621,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: 14),
           _buildDetailRow(
             icon: Icons.fingerprint_outlined,
-            label: 'User Document',
-            value: 'users/{uid}',
+            label: 'Account Status',
+value: 'Active',
           ),
         ],
       ),
