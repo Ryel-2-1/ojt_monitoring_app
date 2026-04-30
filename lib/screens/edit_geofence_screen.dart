@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../main.dart';
+import '../models/company_model.dart';
 import '../models/user_model.dart';
 
 class EditGeofenceScreen extends StatefulWidget {
@@ -25,6 +26,7 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
   final TextEditingController _longitudeController = TextEditingController();
   final TextEditingController _latitudeController = TextEditingController();
   final TextEditingController _radiusController = TextEditingController();
+
   final TextEditingController _internshipStartDateController =
       TextEditingController();
   final TextEditingController _internshipEndDateController =
@@ -33,8 +35,9 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
   bool _isSaving = false;
   bool _isLoadingUser = true;
   bool _didLoadUser = false;
+
   String? _errorMessage;
-  String? _successMessage;
+  String? _selectedCompanyId;
 
   UserModel? _loadedUser;
   DateTime? _internshipStartDate;
@@ -65,7 +68,6 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
     setState(() {
       _isLoadingUser = true;
       _errorMessage = null;
-      _successMessage = null;
     });
 
     try {
@@ -77,6 +79,7 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
       }
 
       _loadedUser = user;
+      _selectedCompanyId = user.companyId;
 
       _requiredHoursController.text = (user.requiredOjtHours ?? 0).toString();
       _companyNameController.text = user.companyName ?? '';
@@ -101,9 +104,21 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
       if (!mounted) return;
       setState(() {
         _isLoadingUser = false;
-        _errorMessage = 'Failed to load user: $e';
+        _errorMessage = 'Failed to load user. Please try again.';
       });
     }
+  }
+
+  void _applyCompany(CompanyModel company) {
+    setState(() {
+      _selectedCompanyId = company.id;
+      _companyNameController.text = company.companyName;
+      _companyAddressController.text = company.companyAddress;
+      _latitudeController.text = company.assignedLatitude.toString();
+      _longitudeController.text = company.assignedLongitude.toString();
+      _radiusController.text = company.allowedRadius.toStringAsFixed(0);
+      _errorMessage = null;
+    });
   }
 
   InputDecoration _fieldDecoration(String hint, {Widget? suffixIcon}) {
@@ -116,7 +131,7 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
       filled: true,
       fillColor: const Color(0xFFF5F7FA),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(10),
         borderSide: BorderSide.none,
       ),
       errorStyle: GoogleFonts.plusJakartaSans(fontSize: 11),
@@ -137,10 +152,9 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
     TextEditingController controller,
     ValueChanged<DateTime> onPicked,
   ) async {
-    final initial = DateTime.now();
     final picked = await showDatePicker(
       context: context,
-      initialDate: initial,
+      initialDate: DateTime.now(),
       firstDate: DateTime(2020),
       lastDate: DateTime(2100),
     );
@@ -158,7 +172,6 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
     setState(() {
       _isSaving = true;
       _errorMessage = null;
-      _successMessage = null;
     });
 
     try {
@@ -167,10 +180,11 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
       await userRepo.updateUser(
         _loadedUser!.uid,
         {
+          'companyId': _selectedCompanyId,
           'companyName': _companyNameController.text.trim(),
           'companyAddress': _companyAddressController.text.trim(),
-          'assignedLongitude': double.parse(_longitudeController.text.trim()),
           'assignedLatitude': double.parse(_latitudeController.text.trim()),
+          'assignedLongitude': double.parse(_longitudeController.text.trim()),
           'allowedRadius': double.parse(_radiusController.text.trim()),
           'requiredOjtHours':
               int.tryParse(_requiredHoursController.text.trim()) ?? 480,
@@ -185,22 +199,20 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
 
       setState(() {
         _isSaving = false;
-        _successMessage = null;
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Placement settings updated successfully.'),
+          content: Text('Student assignment updated successfully.'),
           backgroundColor: Colors.green,
           duration: Duration(seconds: 2),
         ),
       );
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
       setState(() {
         _isSaving = false;
-        _errorMessage = 'Failed to save changes: $e';
-        _successMessage = null;
+        _errorMessage = 'Failed to save assignment. Please check the details and try again.';
       });
     }
   }
@@ -236,7 +248,8 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: const Color(0xFFE7ECF3)),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withOpacity(0.03),
@@ -250,228 +263,50 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: TextButton.icon(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.arrow_back),
-                      label: const Text('Back'),
-                    ),
+                  TextButton.icon(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.arrow_back),
+                    label: const Text('Back'),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Student Placement Setup',
+                    'Student Assignment Setup',
                     style: GoogleFonts.plusJakartaSans(
                       fontSize: 30,
-                      fontWeight: FontWeight.w800,
-                      color: const Color(0xFF1C2434),
+                      fontWeight: FontWeight.w900,
+                      color: const Color(0xFF0A2351),
                     ),
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Configure intern placement, geofence, and internship schedule.',
+                    'Assign this intern to a registered partner company. The company geofence will be applied automatically.',
                     style: GoogleFonts.plusJakartaSans(
                       fontSize: 13,
                       color: Colors.grey[600],
                       height: 1.4,
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Editing: ${_loadedUser!.fullName} | ${_loadedUser!.email} | UID: ${_loadedUser!.uid}',
-                    style: GoogleFonts.plusJakartaSans(
-                      fontSize: 12,
-                      color: Colors.red,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  Text(
-                    'Required OJT Hours',
-                    style: GoogleFonts.plusJakartaSans(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: const Color(0xFF1C2434),
-                    ),
-                  ),
                   const SizedBox(height: 10),
-                  TextFormField(
-                    controller: _requiredHoursController,
-                    keyboardType: TextInputType.number,
-                    decoration: _fieldDecoration('480'),
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return 'Required OJT hours is required';
-                      }
-                      final parsed = int.tryParse(value.trim());
-                      if (parsed == null || parsed <= 0) {
-                        return 'Enter a valid number of hours';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 30),
-                  Text(
-                    'Partner Company',
-                    style: GoogleFonts.plusJakartaSans(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: const Color(0xFF1C2434),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF8FAFD),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: TextFormField(
-                                controller: _companyNameController,
-                                decoration: _fieldDecoration('Company Name'),
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: TextFormField(
-                                controller: _companyAddressController,
-                                decoration: _fieldDecoration('Company Address'),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: TextFormField(
-                                controller: _longitudeController,
-                                keyboardType:
-                                    const TextInputType.numberWithOptions(
-                                  decimal: true,
-                                  signed: true,
-                                ),
-                                decoration: _fieldDecoration('Longitude'),
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: TextFormField(
-                                controller: _latitudeController,
-                                keyboardType:
-                                    const TextInputType.numberWithOptions(
-                                  decimal: true,
-                                  signed: true,
-                                ),
-                                decoration: _fieldDecoration('Latitude'),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        TextFormField(
-                          controller: _radiusController,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration:
-                              _fieldDecoration('Allowed Radius (meters)'),
-                        ),
-                      ],
-                    ),
-                  ),
+                  _buildInternHeader(),
                   const SizedBox(height: 24),
-                  Text(
-                    'Internship Duration',
-                    style: GoogleFonts.plusJakartaSans(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: const Color(0xFF1C2434),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF8FAFD),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: TextFormField(
-                            controller: _internshipStartDateController,
-                            readOnly: true,
-                            onTap: () => _pickDate(
-                              context,
-                              _internshipStartDateController,
-                              (value) => _internshipStartDate = value,
-                            ),
-                            decoration: _fieldDecoration('Start Date'),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: TextFormField(
-                            controller: _internshipEndDateController,
-                            readOnly: true,
-                            onTap: () => _pickDate(
-                              context,
-                              _internshipEndDateController,
-                              (value) => _internshipEndDate = value,
-                            ),
-                            decoration:
-                                _fieldDecoration('Estimated End Date'),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  _buildRequiredHoursSection(),
+                  const SizedBox(height: 24),
+                  _buildPartnerCompanySection(),
+                  const SizedBox(height: 24),
+                  _buildInternshipDurationSection(),
                   if (_errorMessage != null) ...[
                     const SizedBox(height: 18),
-                    Text(
-                      _errorMessage!,
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 12,
-                        color: Colors.red[700],
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                  if (_successMessage != null) ...[
-                    const SizedBox(height: 18),
-                    Text(
-                      _successMessage!,
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 12,
-                        color: Colors.green[700],
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+                    _buildErrorBox(_errorMessage!),
                   ],
                   const SizedBox(height: 28),
                   Align(
                     alignment: Alignment.centerRight,
                     child: SizedBox(
-                      width: 140,
-                      height: 44,
-                      child: ElevatedButton(
+                      width: 190,
+                      height: 46,
+                      child: ElevatedButton.icon(
                         onPressed: _isSaving ? null : _handleSave,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF0D4DB3),
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        child: _isSaving
+                        icon: _isSaving
                             ? const SizedBox(
                                 width: 18,
                                 height: 18,
@@ -480,13 +315,23 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
                                   color: Colors.white,
                                 ),
                               )
-                            : Text(
-                                'CONFIRM',
-                                style: GoogleFonts.plusJakartaSans(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
+                            : const Icon(Icons.save_outlined, size: 18),
+                        label: Text(
+                          _isSaving ? 'Saving...' : 'Save Assignment',
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF0D4DB3),
+                          foregroundColor: Colors.white,
+                          disabledBackgroundColor: Colors.grey[300],
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          elevation: 0,
+                        ),
                       ),
                     ),
                   ),
@@ -497,5 +342,415 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildInternHeader() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFD),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE7ECF3)),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 22,
+            backgroundColor: const Color(0xFFE8F0FF),
+            child: Text(
+              _initialsOf(_loadedUser!.fullName),
+              style: GoogleFonts.plusJakartaSans(
+                fontWeight: FontWeight.w900,
+                color: const Color(0xFF0D4DB3),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _loadedUser!.fullName,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w900,
+                    color: const Color(0xFF1C2434),
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  _loadedUser!.email,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRequiredHoursSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle('Required OJT Hours'),
+        const SizedBox(height: 10),
+        TextFormField(
+          controller: _requiredHoursController,
+          keyboardType: TextInputType.number,
+          decoration: _fieldDecoration('480'),
+          validator: (value) {
+            if (value == null || value.trim().isEmpty) {
+              return 'Required OJT hours is required';
+            }
+            final parsed = int.tryParse(value.trim());
+            if (parsed == null || parsed <= 0) {
+              return 'Enter a valid number of hours';
+            }
+            return null;
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPartnerCompanySection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle('Partner Company'),
+        const SizedBox(height: 10),
+        StreamBuilder<List<CompanyModel>>(
+          stream: AppServices.of(context)
+              .companyRepository
+              .streamCompanies(activeOnly: true),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Padding(
+                padding: EdgeInsets.all(16),
+                child: CircularProgressIndicator(),
+              );
+            }
+
+            if (snapshot.hasError) {
+              return _buildErrorBox(
+                'Could not load partner companies. Please check Firestore permissions.',
+              );
+            }
+
+            final companies = snapshot.data ?? [];
+
+            if (companies.isEmpty) {
+              return _buildInfoBox(
+                icon: Icons.business_outlined,
+                title: 'No partner companies yet',
+                message:
+                    'Go to Geo-Analytics and register a company first before assigning interns.',
+              );
+            }
+
+            CompanyModel? selectedCompany;
+            for (final company in companies) {
+              if (company.id == _selectedCompanyId) {
+                selectedCompany = company;
+                break;
+              }
+            }
+
+            return Column(
+              children: [
+                DropdownButtonFormField<CompanyModel>(
+                  value: selectedCompany,
+                  isExpanded: true,
+                  decoration: _fieldDecoration('Select registered company'),
+                  items: companies.map((company) {
+                    return DropdownMenuItem<CompanyModel>(
+                      value: company,
+                      child: Text(
+                        company.companyName,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (company) {
+                    if (company != null) _applyCompany(company);
+                  },
+                  validator: (_) {
+                    if (_selectedCompanyId == null ||
+                        _selectedCompanyId!.trim().isEmpty) {
+                      return 'Please select a company';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 14),
+                _buildSelectedCompanyPreview(),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSelectedCompanyPreview() {
+    final hasCompany = _companyNameController.text.trim().isNotEmpty;
+
+    if (!hasCompany) {
+      return _buildInfoBox(
+        icon: Icons.info_outline_rounded,
+        title: 'Company geofence not selected',
+        message:
+            'Select a registered company above to auto-fill latitude, longitude, address, and radius.',
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFD),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE7ECF3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextFormField(
+            controller: _companyNameController,
+            readOnly: true,
+            decoration: _fieldDecoration('Company Name'),
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _companyAddressController,
+            readOnly: true,
+            decoration: _fieldDecoration('Company Address'),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  controller: _latitudeController,
+                  readOnly: true,
+                  decoration: _fieldDecoration('Latitude'),
+                  validator: _validateLatitude,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextFormField(
+                  controller: _longitudeController,
+                  readOnly: true,
+                  decoration: _fieldDecoration('Longitude'),
+                  validator: _validateLongitude,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextFormField(
+                  controller: _radiusController,
+                  readOnly: true,
+                  decoration: _fieldDecoration('Radius'),
+                  validator: _validateRadius,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInternshipDurationSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle('Internship Duration'),
+        const SizedBox(height: 10),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF8FAFD),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFE7ECF3)),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  controller: _internshipStartDateController,
+                  readOnly: true,
+                  onTap: () => _pickDate(
+                    context,
+                    _internshipStartDateController,
+                    (value) => _internshipStartDate = value,
+                  ),
+                  decoration: _fieldDecoration('Start Date'),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Start date is required';
+                    }
+                    return null;
+                  },
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: TextFormField(
+                  controller: _internshipEndDateController,
+                  readOnly: true,
+                  onTap: () => _pickDate(
+                    context,
+                    _internshipEndDateController,
+                    (value) => _internshipEndDate = value,
+                  ),
+                  decoration: _fieldDecoration('Estimated End Date'),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'End date is required';
+                    }
+                    if (_internshipStartDate != null &&
+                        _internshipEndDate != null &&
+                        _internshipEndDate!.isBefore(_internshipStartDate!)) {
+                      return 'End date must be after start';
+                    }
+                    return null;
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _sectionTitle(String text) {
+    return Text(
+      text,
+      style: GoogleFonts.plusJakartaSans(
+        fontSize: 16,
+        fontWeight: FontWeight.w900,
+        color: const Color(0xFF1C2434),
+      ),
+    );
+  }
+
+  Widget _buildInfoBox({
+    required IconData icon,
+    required String title,
+    required String message,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEAF1FF),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFD8E6FF)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: const Color(0xFF0D4DB3), size: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                    color: const Color(0xFF0D4DB3),
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  message,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 11,
+                    color: const Color(0xFF1C2434),
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorBox(String message) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFEBEE),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFFFCDD2)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.error_outline_rounded, color: Color(0xFFC62828)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 12,
+                color: const Color(0xFFC62828),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String? _validateLatitude(String? value) {
+    final number = double.tryParse(value?.trim() ?? '');
+    if (number == null) return 'Invalid latitude';
+    if (number < -90 || number > 90) return 'Latitude must be -90 to 90';
+    return null;
+  }
+
+  String? _validateLongitude(String? value) {
+    final number = double.tryParse(value?.trim() ?? '');
+    if (number == null) return 'Invalid longitude';
+    if (number < -180 || number > 180) return 'Longitude must be -180 to 180';
+    return null;
+  }
+
+  String? _validateRadius(String? value) {
+    final number = double.tryParse(value?.trim() ?? '');
+    if (number == null) return 'Invalid radius';
+    if (number <= 0) return 'Must be greater than 0';
+    return null;
+  }
+
+  String _initialsOf(String name) {
+    final parts = name.trim().split(RegExp(r'\s+'));
+    if (parts.isEmpty || parts.first.isEmpty) return 'U';
+    if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
+
+    return '${parts.first.substring(0, 1)}${parts.last.substring(0, 1)}'
+        .toUpperCase();
   }
 }

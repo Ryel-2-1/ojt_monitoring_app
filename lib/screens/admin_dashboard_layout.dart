@@ -8,6 +8,7 @@ import 'system_logs_screen.dart';
 import 'time_requests_screen.dart';
 import '../main.dart';
 import 'web_login_screen.dart';
+import 'geo_analytics_screen.dart';
 
 class AdminDashboardLayout extends StatefulWidget {
   final String activeRoute;
@@ -99,10 +100,7 @@ class _AdminDashboardLayoutState extends State<AdminDashboardLayout> {
       case 'Access Control':
         return const AccessControlScreen();
       case 'Geo-Analytics':
-        return _buildPlaceholderPage(
-          title: 'Geo-Analytics',
-          subtitle: 'This page will display geospatial analysis and insights.',
-        );
+        return const GeoAnalyticsScreen();
       case 'System Logs':
         return const SystemLogsScreen();
       default:

@@ -8,11 +8,11 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../main.dart';
 import '../models/attendance_model.dart';
+import '../repositories/attendance_repository.dart';
 import '../services/location_service.dart' as app_location;
 
 import 'timesheet_screen.dart';
 import 'profile_screen.dart';
-import '../repositories/attendance_repository.dart';
 
 class TimerScreen extends StatefulWidget {
   const TimerScreen({super.key});
@@ -47,6 +47,16 @@ class _TimerScreenState extends State<TimerScreen>
   bool _isAutoStopping = false;
   bool _hasExitedGeofence = false;
 
+  Timer? _outsideGeofenceTimer;
+  DateTime? _outsideGeofenceStartedAt;
+
+  bool _showGeofenceWarning = false;
+  int _outsideCountdownSeconds = 45;
+  Timer? _outsideCountdownTimer;
+
+  static const double _maxReliableAccuracyMeters = 50.0;
+  static const Duration _outsideGeofenceGracePeriod = Duration(seconds: 45);
+
   int? _requiredOjtHours;
   double _completedOjtHours = 0;
 
@@ -79,6 +89,8 @@ class _TimerScreenState extends State<TimerScreen>
   @override
   void dispose() {
     _liveTimer?.cancel();
+    _outsideGeofenceTimer?.cancel();
+    _outsideCountdownTimer?.cancel();
     _ringController.dispose();
     _positionStreamSub?.cancel();
     super.dispose();
@@ -103,14 +115,15 @@ class _TimerScreenState extends State<TimerScreen>
       _completedOjtHours = _calculateCompletedHours(allLogs);
 
       final latestLog = await services.attendanceRepository.getLatestLog(uid);
-bool alreadyClockedIn = false;
+      bool alreadyClockedIn = false;
 
-if (latestLog?.status == AttendanceStatus.clockIn) {
-  alreadyClockedIn = true;
-  _clockInTime = latestLog!.timestamp;
-  _startTimer(_clockInTime!);
-  await _startLiveTracking();
-}
+      if (latestLog?.status == AttendanceStatus.clockIn) {
+        alreadyClockedIn = true;
+        _clockInTime = latestLog!.timestamp;
+        _startTimer(_clockInTime!);
+        await _startLiveTracking();
+      }
+
       if (mounted) {
         setState(() {
           _isClockedIn = alreadyClockedIn;
@@ -192,7 +205,7 @@ if (latestLog?.status == AttendanceStatus.clockIn) {
     final currentUser = services.authService.currentUser;
     if (currentUser == null) return;
 
-    _hasExitedGeofence = false;
+    _resetOutsideGeofenceWarning();
     await _positionStreamSub?.cancel();
 
     try {
@@ -210,17 +223,19 @@ if (latestLog?.status == AttendanceStatus.clockIn) {
         isClockedIn: true,
         lastStatus: 'Clock-In',
       );
+
+      await _evaluateGeofenceForAutoStop(firstPosition);
     } catch (e) {
-  debugPrint('Initial live location write failed: $e');
-  if (mounted) {
-    _showError('Could not start live location tracking. Please try again.');
-  }
-}
+      debugPrint('Initial live location write failed: $e');
+      if (mounted) {
+        _showError('Could not start live location tracking. Please try again.');
+      }
+    }
 
     _positionStreamSub = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 10,
+        distanceFilter: 5,
       ),
     ).listen((Position position) async {
       try {
@@ -235,30 +250,194 @@ if (latestLog?.status == AttendanceStatus.clockIn) {
           lastStatus: 'Clock-In',
         );
 
-        if (_isClockedIn &&
-            !_isAutoStopping &&
-            _targetLat != null &&
-            _targetLng != null &&
-            _allowedRadius != null) {
-          final distance = _distanceMeters(
-            position.latitude,
-            position.longitude,
-            _targetLat!,
-            _targetLng!,
-          );
-
-          if (distance > _allowedRadius! && !_hasExitedGeofence) {
-            _hasExitedGeofence = true;
-            await _handleAutoStop(position);
-          }
-        }
+        await _evaluateGeofenceForAutoStop(position);
       } catch (e) {
         debugPrint('Live tracking update failed: $e');
       }
     });
   }
 
+  Future<void> _evaluateGeofenceForAutoStop(Position position) async {
+    if (!_isClockedIn ||
+        _isAutoStopping ||
+        _targetLat == null ||
+        _targetLng == null ||
+        _allowedRadius == null) {
+      return;
+    }
+
+    if (position.accuracy > _maxReliableAccuracyMeters) {
+      debugPrint(
+        'Ignoring geofence check due to weak GPS accuracy: ${position.accuracy}m',
+      );
+      return;
+    }
+
+    final distance = _distanceMeters(
+      position.latitude,
+      position.longitude,
+      _targetLat!,
+      _targetLng!,
+    );
+
+    final isOutside = distance > _allowedRadius!;
+
+    if (!isOutside) {
+      _resetOutsideGeofenceWarning();
+
+      if (mounted && _statusMessage?.startsWith('Outside geofence') == true) {
+        setState(() {
+          _statusMessage = 'Location verified. You are inside the geofence.';
+        });
+      }
+
+      return;
+    }
+
+    _outsideGeofenceStartedAt ??= DateTime.now();
+
+    _startOutsideGeofenceWarning();
+
+    if (mounted) {
+      setState(() {
+        _statusMessage =
+            'Outside geofence detected. Rechecking before auto clock-out...';
+      });
+    }
+
+    final outsideDuration = DateTime.now().difference(
+      _outsideGeofenceStartedAt!,
+    );
+
+    if (outsideDuration < _outsideGeofenceGracePeriod) {
+      _outsideGeofenceTimer?.cancel();
+      _outsideGeofenceTimer = Timer(_outsideGeofenceGracePeriod, () async {
+        if (!mounted) return;
+        await _confirmOutsideAndAutoStop();
+      });
+      return;
+    }
+
+    await _confirmOutsideAndAutoStop();
+  }
+
+  Future<void> _confirmOutsideAndAutoStop() async {
+    if (!_isClockedIn ||
+        _isAutoStopping ||
+        _targetLat == null ||
+        _targetLng == null ||
+        _allowedRadius == null) {
+      return;
+    }
+
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      if (position.accuracy > _maxReliableAccuracyMeters) {
+        debugPrint(
+          'Auto clock-out confirmation ignored due to weak GPS accuracy: ${position.accuracy}m',
+        );
+        return;
+      }
+
+      final distance = _distanceMeters(
+        position.latitude,
+        position.longitude,
+        _targetLat!,
+        _targetLng!,
+      );
+
+      if (distance <= _allowedRadius!) {
+        _resetOutsideGeofenceWarning();
+
+        if (mounted) {
+          setState(() {
+            _statusMessage = 'Location verified. You are inside the geofence.';
+          });
+        }
+
+        return;
+      }
+
+      _hasExitedGeofence = true;
+      await _handleAutoStop(position);
+    } catch (e) {
+      debugPrint('Auto clock-out confirmation failed: $e');
+    }
+  }
+
+  void _startOutsideGeofenceWarning() {
+    if (_showGeofenceWarning && _outsideCountdownTimer != null) return;
+
+    _outsideCountdownTimer?.cancel();
+
+    if (mounted) {
+      setState(() {
+        _showGeofenceWarning = true;
+        _outsideCountdownSeconds = _outsideGeofenceGracePeriod.inSeconds;
+      });
+    } else {
+      _showGeofenceWarning = true;
+      _outsideCountdownSeconds = _outsideGeofenceGracePeriod.inSeconds;
+    }
+
+    _outsideCountdownTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (timer) {
+        if (!mounted) {
+          timer.cancel();
+          return;
+        }
+
+        final startedAt = _outsideGeofenceStartedAt;
+        if (startedAt == null) {
+          timer.cancel();
+          return;
+        }
+
+        final elapsed = DateTime.now().difference(startedAt).inSeconds;
+        final remaining = _outsideGeofenceGracePeriod.inSeconds - elapsed;
+
+        if (remaining <= 0) {
+          setState(() {
+            _outsideCountdownSeconds = 0;
+          });
+          timer.cancel();
+          return;
+        }
+
+        setState(() {
+          _outsideCountdownSeconds = remaining;
+        });
+      },
+    );
+  }
+
+  void _resetOutsideGeofenceWarning({bool updateUi = true}) {
+    _outsideGeofenceTimer?.cancel();
+    _outsideGeofenceTimer = null;
+
+    _outsideCountdownTimer?.cancel();
+    _outsideCountdownTimer = null;
+
+    _outsideGeofenceStartedAt = null;
+    _hasExitedGeofence = false;
+
+    if (updateUi && mounted) {
+      setState(() {
+        _showGeofenceWarning = false;
+        _outsideCountdownSeconds = _outsideGeofenceGracePeriod.inSeconds;
+      });
+    } else {
+      _showGeofenceWarning = false;
+      _outsideCountdownSeconds = _outsideGeofenceGracePeriod.inSeconds;
+    }
+  }
+
   Future<void> _stopLiveTracking() async {
+    _resetOutsideGeofenceWarning();
     await _positionStreamSub?.cancel();
     _positionStreamSub = null;
   }
@@ -273,74 +452,72 @@ if (latestLog?.status == AttendanceStatus.clockIn) {
     await _handleClockInOut(AttendanceStatus.clockIn);
   }
 
- Future<void> _handleStop() async {
-  if (!_isClockedIn) return;
-
-  setState(() {
-    _isLoading = true;
-    _errorMessage = null;
-    _statusMessage = 'Logging clock-out...';
-  });
-
-  try {
-    final services = AppServices.of(context);
-    final currentUser = services.authService.currentUser;
-
-    if (currentUser == null) {
-      throw Exception('User not authenticated.');
-    }
-
-    await _locationService?.ensurePermissions();
-
-    final position = await Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.high,
-    );
-
-    await services.attendanceRepository.logAttendance(
-      uid: currentUser.uid,
-      status: AttendanceStatus.clockOut,
-      locationCoords: GeoPoint(position.latitude, position.longitude),
-    );
-
-    await services.liveLocationRepository.upsertLiveLocation(
-      uid: currentUser.uid,
-      fullName: currentUser.displayName ?? 'Intern',
-      email: currentUser.email ?? '',
-      latitude: position.latitude,
-      longitude: position.longitude,
-      accuracy: position.accuracy,
-      isClockedIn: false,
-      lastStatus: 'Clock-Out',
-    );
-
-    await _stopLiveTracking();
-    await _refreshCompletedHours();
-
-    if (!mounted) return;
+  Future<void> _handleStop() async {
+    if (!_isClockedIn) return;
 
     setState(() {
-      _isClockedIn = false;
-      _statusMessage = 'Clock-Out logged successfully.';
-      _isLoading = false;
+      _isLoading = true;
+      _errorMessage = null;
+      _statusMessage = 'Logging clock-out...';
     });
 
-    _stopTimer();
-  } on AttendanceTransitionException catch (e) {
-    if (!mounted) return;
-    _showError(e.message);
-  } on app_location.LocationServiceDisabledException catch (e) {
-    if (!mounted) return;
-    _showError(e.toString());
-  } on app_location.LocationPermissionDeniedException catch (e) {
-    if (!mounted) return;
-    _showError(e.toString());
-  } catch (e) {
-    if (!mounted) return;
-    _showError('Clock-out failed: $e');
+    try {
+      final services = AppServices.of(context);
+      final currentUser = services.authService.currentUser;
+      if (currentUser == null) {
+        throw Exception('User not authenticated.');
+      }
+
+      await _locationService?.ensurePermissions();
+
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      await services.attendanceRepository.logAttendance(
+        uid: currentUser.uid,
+        status: AttendanceStatus.clockOut,
+        locationCoords: GeoPoint(position.latitude, position.longitude),
+      );
+
+      await services.liveLocationRepository.upsertLiveLocation(
+        uid: currentUser.uid,
+        fullName: currentUser.displayName ?? 'Intern',
+        email: currentUser.email ?? '',
+        latitude: position.latitude,
+        longitude: position.longitude,
+        accuracy: position.accuracy,
+        isClockedIn: false,
+        lastStatus: 'Clock-Out',
+      );
+
+      await _stopLiveTracking();
+      await _refreshCompletedHours();
+
+      if (!mounted) return;
+
+      setState(() {
+        _isClockedIn = false;
+        _statusMessage = 'Clock-Out logged successfully.';
+        _isLoading = false;
+      });
+
+      _stopTimer();
+    } on AttendanceTransitionException catch (e) {
+      if (!mounted) return;
+      _showError(e.message);
+    } on app_location.LocationServiceDisabledException catch (e) {
+      if (!mounted) return;
+      _showError(e.toString());
+    } on app_location.LocationPermissionDeniedException catch (e) {
+      if (!mounted) return;
+      _showError(e.toString());
+    } catch (e) {
+      if (!mounted) return;
+      debugPrint('Clock-out failed: $e');
+      _showError('Clock-out failed. Please check your location and try again.');
+    }
   }
-}
-
-
 
   Future<void> _handleAutoStop(Position position) async {
     if (!_isClockedIn || _isAutoStopping) return;
@@ -386,19 +563,20 @@ if (latestLog?.status == AttendanceStatus.clockIn) {
 
       _stopTimer();
     } on AttendanceTransitionException catch (e) {
-  if (!mounted) return;
-  _showError(e.message);
-} catch (_) {
-  if (!mounted) return;
-  _showError(
-    'Automatic clock-out failed. Please contact your supervisor if this continues.',
-  );
-} finally {
-  _isAutoStopping = false;
-}
+      if (!mounted) return;
+      _showError(e.message);
+    } catch (e) {
+      if (!mounted) return;
+      debugPrint('Automatic clock-out failed: $e');
+      _showError(
+        'Automatic clock-out failed. Please contact your supervisor if this continues.',
+      );
+    } finally {
+      _isAutoStopping = false;
+    }
   }
 
-   Future<void> _handleClockInOut(AttendanceStatus status) async {
+  Future<void> _handleClockInOut(AttendanceStatus status) async {
     if (_targetLat == null || _targetLng == null) {
       _showError('Geofence configuration is missing.');
       return;
@@ -447,11 +625,10 @@ if (latestLog?.status == AttendanceStatus.clockIn) {
       if (mounted) _showError(e.toString());
     } on AttendanceTransitionException catch (e) {
       if (mounted) _showError(e.message);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Clock action failed: $e');
       if (mounted) {
-        _showError(
-          'Clock action failed. Please check your location and try again.',
-        );
+        _showError('Clock action failed. Please check your location and try again.');
       }
     }
   }
@@ -466,30 +643,30 @@ if (latestLog?.status == AttendanceStatus.clockIn) {
   }
 
   void _handleBottomNavTap(int index) {
-  if (index == 1) return;
+    if (index == 1) return;
 
-  switch (index) {
-    case 0:
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const AuthGate()),
-        (route) => false,
-      );
-      break;
+    switch (index) {
+      case 0:
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const AuthGate()),
+          (route) => false,
+        );
+        break;
 
-    case 2:
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const TimesheetScreen()),
-        (route) => route.isFirst,
-      );
-      break;
+      case 2:
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const TimesheetScreen()),
+          (route) => route.isFirst,
+        );
+        break;
 
-    case 3:
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const ProfileScreen()),
-      );
-      break;
+      case 3:
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const ProfileScreen()),
+        );
+        break;
+    }
   }
-}
 
   @override
   Widget build(BuildContext context) {
@@ -507,6 +684,10 @@ if (latestLog?.status == AttendanceStatus.clockIn) {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (_showGeofenceWarning) ...[
+                      _buildGeofenceWarningCard(),
+                      const SizedBox(height: 16),
+                    ],
                     _buildAssignmentCard(),
                     const SizedBox(height: 16),
                     _buildOjtHoursCard(),
@@ -572,6 +753,78 @@ if (latestLog?.status == AttendanceStatus.clockIn) {
               fontSize: 15,
               fontWeight: FontWeight.w700,
               color: const Color(0xFF1A3A6B),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGeofenceWarningCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF3E0),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: const Color(0xFFFF9800),
+          width: 1.4,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFFF9800).withOpacity(0.12),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(
+            Icons.warning_amber_rounded,
+            color: Color(0xFFE65100),
+            size: 30,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Outside Geofence Detected',
+                  style: GoogleFonts.dmSans(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w900,
+                    color: const Color(0xFFE65100),
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  'Return to your assigned work area within $_outsideCountdownSeconds seconds or you will be automatically clocked out.',
+                  style: GoogleFonts.dmSans(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF5D4037),
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    minHeight: 8,
+                    value: (_outsideCountdownSeconds /
+                            _outsideGeofenceGracePeriod.inSeconds)
+                        .clamp(0.0, 1.0),
+                    backgroundColor: const Color(0xFFFFCC80),
+                    valueColor: const AlwaysStoppedAnimation<Color>(
+                      Color(0xFFE65100),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],

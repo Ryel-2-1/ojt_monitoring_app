@@ -19,6 +19,7 @@ import 'screens/login_screen.dart';
 import 'screens/web_login_screen.dart';
 import 'screens/web_unauthorized_screen.dart';
 import 'services/auth_service.dart';
+import 'repositories/company_repository.dart';
 
 const FirebaseOptions _webFirebaseOptions = FirebaseOptions(
   apiKey: 'AIzaSyByaNJZjhXfedXhs-71GjazPYhegb36bBM',
@@ -50,6 +51,7 @@ class AppServices extends InheritedWidget {
   final RoleRepository roleRepository;
   final LiveLocationRepository liveLocationRepository;
   final TimeRequestRepository timeRequestRepository;
+  final CompanyRepository companyRepository;
 
   const AppServices({
     super.key,
@@ -60,6 +62,7 @@ class AppServices extends InheritedWidget {
     required this.roleRepository,
     required this.liveLocationRepository,
     required this.timeRequestRepository,
+    required this.companyRepository,
     required super.child,
   });
 
@@ -86,6 +89,7 @@ class OjtApp extends StatelessWidget {
       roleRepository: RoleRepository(),
       liveLocationRepository: LiveLocationRepository(),
       timeRequestRepository: TimeRequestRepository(),
+      companyRepository: CompanyRepository(),
       child: MaterialApp(
         title: 'GeoAI OJT Monitoring System',
         debugShowCheckedModeBanner: false,

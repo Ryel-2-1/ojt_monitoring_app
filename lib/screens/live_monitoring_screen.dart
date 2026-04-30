@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:latlong2/latlong.dart';
@@ -82,8 +83,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                     if (logSnapshot.hasError) {
                       return Center(
                         child: Text(
-                          'Failed to load session times. Please check permissions and try again.',
-                          textAlign: TextAlign.center,
+                          'Failed to load activity. Please check permissions and try again.',
                           style: GoogleFonts.plusJakartaSans(
                             color: Colors.red[700],
                             fontSize: 13,
@@ -93,6 +93,29 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                     }
 
                     final latestLogs = logSnapshot.data ?? {};
+
+                    final activeUsers = users.where((user) {
+                      final latest = latestLogs[user.uid];
+                      return latest?.status == AttendanceStatus.clockIn;
+                    }).toList();
+
+                    final filteredActiveUsers = activeUsers.where((user) {
+                      final q = _searchQuery.trim().toLowerCase();
+
+                      final hasGeofence = user.assignedLatitude != null &&
+                          user.assignedLongitude != null &&
+                          user.allowedRadius != null;
+
+                      if (_selectedFilter == 'Assigned Geofence Only' &&
+                          !hasGeofence) {
+                        return false;
+                      }
+
+                      if (q.isEmpty) return true;
+
+                      return user.fullName.toLowerCase().contains(q) ||
+                          user.email.toLowerCase().contains(q);
+                    }).toList();
 
                     return StreamBuilder<List<LiveLocationModel>>(
                       stream: liveLocationRepo.streamActiveLocations(),
@@ -119,39 +142,11 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
 
                         final allLocations = locationSnapshot.data ?? [];
 
-                        final liveUids = allLocations
-                            .map((location) => location.uid)
-                            .toSet();
-
-                        final liveUsers = users.where((user) {
-                          return liveUids.contains(user.uid);
-                        }).toList();
-
-                        final filteredActiveUsers = liveUsers.where((user) {
-                          final q = _searchQuery.trim().toLowerCase();
-
-                          final hasGeofence =
-                              user.assignedLatitude != null &&
-                                  user.assignedLongitude != null &&
-                                  user.allowedRadius != null;
-
-                          if (_selectedFilter == 'Assigned Geofence Only' &&
-                              !hasGeofence) {
-                            return false;
-                          }
-
-                          if (q.isEmpty) return true;
-
-                          return user.fullName.toLowerCase().contains(q) ||
-                              user.email.toLowerCase().contains(q);
-                        }).toList();
-
-                        final filteredActiveUids = filteredActiveUsers
-                            .map((user) => user.uid)
-                            .toSet();
+                        final activeUids =
+                            filteredActiveUsers.map((u) => u.uid).toSet();
 
                         final filteredLocations = allLocations.where((location) {
-                          if (!filteredActiveUids.contains(location.uid)) {
+                          if (!activeUids.contains(location.uid)) {
                             return false;
                           }
 
@@ -223,7 +218,6 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                                       Expanded(
                                         child: _buildActiveSessionsList(
                                           filteredActiveUsers,
-                                          filteredLocations,
                                           latestLogs,
                                         ),
                                       ),
@@ -652,7 +646,6 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
 
   Widget _buildActiveSessionsList(
     List<UserModel> activeUsers,
-    List<LiveLocationModel> activeLocations,
     Map<String, AttendanceModel> latestLogs,
   ) {
     if (activeUsers.isEmpty) {
@@ -667,28 +660,17 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
       );
     }
 
-    final locationByUid = {
-      for (final location in activeLocations) location.uid: location,
-    };
-
     return ListView.separated(
       itemCount: activeUsers.length,
       separatorBuilder: (_, __) => const SizedBox(height: 12),
       itemBuilder: (context, index) {
         final user = activeUsers[index];
-        final location = locationByUid[user.uid];
-        final latestLog = latestLogs[user.uid];
+        final latest = latestLogs[user.uid];
 
-        final sessionTime = latestLog?.status == AttendanceStatus.clockIn
-            ? _formatElapsed(DateTime.now().difference(latestLog!.timestamp))
-            : 'Active';
-
-        final pingText = location == null
-            ? 'Ping unavailable'
-            : _formatLastUpdated(location.updatedAt).replaceFirst(
-                'Updated ',
-                'Ping: ',
-              );
+        final sessionText =
+            latest == null || latest.status != AttendanceStatus.clockIn
+                ? '--:--:--'
+                : _formatElapsed(DateTime.now().difference(latest.timestamp));
 
         final hasGeofence = user.assignedLatitude != null &&
             user.assignedLongitude != null &&
@@ -698,8 +680,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
           initials: _initialsOf(user.fullName),
           name: user.fullName,
           company: hasGeofence ? 'Geofence Configured' : user.email,
-          sessionTime: sessionTime,
-          pingText: pingText,
+          sessionTime: sessionText,
           statusColor: const Color(0xFF14A44D),
         );
       },
@@ -711,7 +692,6 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
     required String name,
     required String company,
     required String sessionTime,
-    required String pingText,
     required Color statusColor,
   }) {
     return Container(
@@ -774,59 +754,11 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 6,
-                  children: [
-                    _buildStatusChip(
-                      icon: Icons.schedule_rounded,
-                      text: sessionTime,
-                      color: statusColor,
-                    ),
-                    _buildStatusChip(
-                      icon: Icons.location_on_outlined,
-                      text: pingText,
-                      color: const Color(0xFF0D4DB3),
-                    ),
-                  ],
+                _LiveSessionTimeChip(
+                  initialText: sessionTime,
+                  statusColor: statusColor,
                 ),
               ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatusChip({
-    required IconData icon,
-    required String text,
-    required Color color,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 10,
-        vertical: 5,
-      ),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.10),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            icon,
-            size: 12,
-            color: color,
-          ),
-          const SizedBox(width: 6),
-          Text(
-            text,
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              color: color,
             ),
           ),
         ],
@@ -913,25 +845,113 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
         .toUpperCase();
   }
 
-  String _formatLastUpdated(DateTime updatedAt) {
-    final difference = DateTime.now().difference(updatedAt);
+  String _formatElapsed(Duration duration) {
+    String pad(int value) => value.toString().padLeft(2, '0');
 
-    if (difference.inSeconds < 60) {
-      return 'Updated just now';
-    }
+    return '${pad(duration.inHours)}:${pad(duration.inMinutes.remainder(60))}:${pad(duration.inSeconds.remainder(60))}';
+  }
+}
 
-    if (difference.inMinutes < 60) {
-      return 'Updated ${difference.inMinutes}m ago';
-    }
+class _LiveSessionTimeChip extends StatefulWidget {
+  final String initialText;
+  final Color statusColor;
 
-    if (difference.inHours < 24) {
-      return 'Updated ${difference.inHours}h ago';
-    }
+  const _LiveSessionTimeChip({
+    required this.initialText,
+    required this.statusColor,
+  });
 
-    return 'Updated ${difference.inDays}d ago';
+  @override
+  State<_LiveSessionTimeChip> createState() => _LiveSessionTimeChipState();
+}
+
+class _LiveSessionTimeChipState extends State<_LiveSessionTimeChip> {
+  late final Stopwatch _stopwatch;
+  late final Ticker _ticker;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _stopwatch = Stopwatch()..start();
+
+    _ticker = Ticker((_) {
+      if (mounted) {
+        setState(() {});
+      }
+    })..start();
   }
 
-  String _formatElapsed(Duration duration) {
+  @override
+  void didUpdateWidget(covariant _LiveSessionTimeChip oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.initialText != widget.initialText) {
+      _stopwatch
+        ..reset()
+        ..start();
+    }
+  }
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    _stopwatch.stop();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final base = _parseDuration(widget.initialText);
+    final current = base + _stopwatch.elapsed;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 10,
+        vertical: 5,
+      ),
+      decoration: BoxDecoration(
+        color: widget.statusColor.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.schedule_rounded,
+            size: 12,
+            color: widget.statusColor,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            _formatElapsed(current),
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: widget.statusColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static Duration _parseDuration(String value) {
+    final parts = value.split(':');
+    if (parts.length != 3) return Duration.zero;
+
+    final hours = int.tryParse(parts[0]) ?? 0;
+    final minutes = int.tryParse(parts[1]) ?? 0;
+    final seconds = int.tryParse(parts[2]) ?? 0;
+
+    return Duration(
+      hours: hours,
+      minutes: minutes,
+      seconds: seconds,
+    );
+  }
+
+  static String _formatElapsed(Duration duration) {
     String pad(int value) => value.toString().padLeft(2, '0');
 
     return '${pad(duration.inHours)}:${pad(duration.inMinutes.remainder(60))}:${pad(duration.inSeconds.remainder(60))}';

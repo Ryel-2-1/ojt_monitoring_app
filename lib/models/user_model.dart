@@ -46,8 +46,9 @@ class UserModel {
   final double? assignedLongitude;
   final double? allowedRadius;
 
-  final String? companyName;
-  final String? companyAddress;
+  final String? companyId;
+final String? companyName;
+final String? companyAddress;
   final int? requiredOjtHours;
   final DateTime? internshipStartDate;
   final DateTime? internshipEndDate;
@@ -60,8 +61,9 @@ class UserModel {
     this.assignedLatitude,
     this.assignedLongitude,
     this.allowedRadius,
-    this.companyName,
-    this.companyAddress,
+    this.companyId,
+this.companyName,
+this.companyAddress,
     this.requiredOjtHours,
     this.internshipStartDate,
     this.internshipEndDate,
@@ -77,6 +79,7 @@ class UserModel {
       assignedLatitude: _toDouble(map['assignedLatitude']),
       assignedLongitude: _toDouble(map['assignedLongitude']),
       allowedRadius: _toDouble(map['allowedRadius']),
+      companyId: map['companyId']?.toString(),
       companyName: map['companyName']?.toString(),
       companyAddress: map['companyAddress']?.toString(),
       requiredOjtHours: _toInt(map['requiredOjtHours']),
@@ -94,6 +97,7 @@ class UserModel {
       'assignedLatitude': assignedLatitude,
       'assignedLongitude': assignedLongitude,
       'allowedRadius': allowedRadius,
+      'companyId': companyId,
       'companyName': companyName,
       'companyAddress': companyAddress,
       'requiredOjtHours': requiredOjtHours,
@@ -113,6 +117,7 @@ class UserModel {
     double? assignedLatitude,
     double? assignedLongitude,
     double? allowedRadius,
+    String? companyId,
     String? companyName,
     String? companyAddress,
     int? requiredOjtHours,
@@ -127,6 +132,7 @@ class UserModel {
       assignedLatitude: assignedLatitude ?? this.assignedLatitude,
       assignedLongitude: assignedLongitude ?? this.assignedLongitude,
       allowedRadius: allowedRadius ?? this.allowedRadius,
+      companyId: companyId ?? this.companyId,
       companyName: companyName ?? this.companyName,
       companyAddress: companyAddress ?? this.companyAddress,
       requiredOjtHours: requiredOjtHours ?? this.requiredOjtHours,
