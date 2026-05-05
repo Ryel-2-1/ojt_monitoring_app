@@ -1,9 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-enum UserRole {
-  intern,
-  supervisor,
-}
+enum UserRole { intern, supervisor }
 
 extension UserRoleExtension on UserRole {
   String get value {
@@ -42,13 +39,21 @@ class UserModel {
   final String fullName;
   final UserRole role;
 
+  final String? supervisorUid;
+  final String? supervisorName;
+  final String? supervisorEmail;
+
+  final String? enrollmentId;
+  final String? enrollmentStatus;
+
+  final String? companyId;
+  final String? companyName;
+  final String? companyAddress;
+
   final double? assignedLatitude;
   final double? assignedLongitude;
   final double? allowedRadius;
 
-  final String? companyId;
-final String? companyName;
-final String? companyAddress;
   final int? requiredOjtHours;
   final DateTime? internshipStartDate;
   final DateTime? internshipEndDate;
@@ -58,12 +63,17 @@ final String? companyAddress;
     required this.email,
     required this.fullName,
     required this.role,
+    this.supervisorUid,
+    this.supervisorName,
+    this.supervisorEmail,
+    this.enrollmentId,
+    this.enrollmentStatus,
+    this.companyId,
+    this.companyName,
+    this.companyAddress,
     this.assignedLatitude,
     this.assignedLongitude,
     this.allowedRadius,
-    this.companyId,
-this.companyName,
-this.companyAddress,
     this.requiredOjtHours,
     this.internshipStartDate,
     this.internshipEndDate,
@@ -74,14 +84,20 @@ this.companyAddress,
       uid: id ?? map['uid']?.toString() ?? '',
       email: map['email']?.toString() ?? '',
       fullName: map['fullName']?.toString() ?? '',
-      role: UserRoleExtension.fromString(map['role']?.toString()) ??
+      role:
+          UserRoleExtension.fromString(map['role']?.toString()) ??
           UserRole.intern,
-      assignedLatitude: _toDouble(map['assignedLatitude']),
-      assignedLongitude: _toDouble(map['assignedLongitude']),
-      allowedRadius: _toDouble(map['allowedRadius']),
+      supervisorUid: map['supervisorUid']?.toString(),
+      supervisorName: map['supervisorName']?.toString(),
+      supervisorEmail: map['supervisorEmail']?.toString(),
+      enrollmentId: map['enrollmentId']?.toString(),
+      enrollmentStatus: map['enrollmentStatus']?.toString(),
       companyId: map['companyId']?.toString(),
       companyName: map['companyName']?.toString(),
       companyAddress: map['companyAddress']?.toString(),
+      assignedLatitude: _toDouble(map['assignedLatitude']),
+      assignedLongitude: _toDouble(map['assignedLongitude']),
+      allowedRadius: _toDouble(map['allowedRadius']),
       requiredOjtHours: _toInt(map['requiredOjtHours']),
       internshipStartDate: _toDateTime(map['internshipStartDate']),
       internshipEndDate: _toDateTime(map['internshipEndDate']),
@@ -94,18 +110,24 @@ this.companyAddress,
       'email': email,
       'fullName': fullName,
       'role': role.value,
-      'assignedLatitude': assignedLatitude,
-      'assignedLongitude': assignedLongitude,
-      'allowedRadius': allowedRadius,
+      'supervisorUid': supervisorUid,
+      'supervisorName': supervisorName,
+      'supervisorEmail': supervisorEmail,
+      'enrollmentId': enrollmentId,
+      'enrollmentStatus': enrollmentStatus,
       'companyId': companyId,
       'companyName': companyName,
       'companyAddress': companyAddress,
+      'assignedLatitude': assignedLatitude,
+      'assignedLongitude': assignedLongitude,
+      'allowedRadius': allowedRadius,
       'requiredOjtHours': requiredOjtHours,
       'internshipStartDate': internshipStartDate == null
           ? null
           : Timestamp.fromDate(internshipStartDate!),
-      'internshipEndDate':
-          internshipEndDate == null ? null : Timestamp.fromDate(internshipEndDate!),
+      'internshipEndDate': internshipEndDate == null
+          ? null
+          : Timestamp.fromDate(internshipEndDate!),
     };
   }
 
@@ -114,12 +136,17 @@ this.companyAddress,
     String? email,
     String? fullName,
     UserRole? role,
-    double? assignedLatitude,
-    double? assignedLongitude,
-    double? allowedRadius,
+    String? supervisorUid,
+    String? supervisorName,
+    String? supervisorEmail,
+    String? enrollmentId,
+    String? enrollmentStatus,
     String? companyId,
     String? companyName,
     String? companyAddress,
+    double? assignedLatitude,
+    double? assignedLongitude,
+    double? allowedRadius,
     int? requiredOjtHours,
     DateTime? internshipStartDate,
     DateTime? internshipEndDate,
@@ -129,34 +156,55 @@ this.companyAddress,
       email: email ?? this.email,
       fullName: fullName ?? this.fullName,
       role: role ?? this.role,
-      assignedLatitude: assignedLatitude ?? this.assignedLatitude,
-      assignedLongitude: assignedLongitude ?? this.assignedLongitude,
-      allowedRadius: allowedRadius ?? this.allowedRadius,
+      supervisorUid: supervisorUid ?? this.supervisorUid,
+      supervisorName: supervisorName ?? this.supervisorName,
+      supervisorEmail: supervisorEmail ?? this.supervisorEmail,
+      enrollmentId: enrollmentId ?? this.enrollmentId,
+      enrollmentStatus: enrollmentStatus ?? this.enrollmentStatus,
       companyId: companyId ?? this.companyId,
       companyName: companyName ?? this.companyName,
       companyAddress: companyAddress ?? this.companyAddress,
+      assignedLatitude: assignedLatitude ?? this.assignedLatitude,
+      assignedLongitude: assignedLongitude ?? this.assignedLongitude,
+      allowedRadius: allowedRadius ?? this.allowedRadius,
       requiredOjtHours: requiredOjtHours ?? this.requiredOjtHours,
       internshipStartDate: internshipStartDate ?? this.internshipStartDate,
       internshipEndDate: internshipEndDate ?? this.internshipEndDate,
     );
   }
 
+  bool get hasActiveEnrollment {
+    return enrollmentStatus?.trim().toLowerCase() == 'active';
+  }
+
+  bool get hasValidCompanyAssignment {
+    return companyId != null &&
+        companyId!.trim().isNotEmpty &&
+        assignedLatitude != null &&
+        assignedLongitude != null &&
+        allowedRadius != null &&
+        allowedRadius! > 0;
+  }
+
   static double? _toDouble(dynamic value) {
     if (value == null) return null;
     if (value is num) return value.toDouble();
-    return double.tryParse(value.toString());
+
+    return double.tryParse(value.toString().trim());
   }
 
   static int? _toInt(dynamic value) {
     if (value == null) return null;
     if (value is num) return value.toInt();
-    return int.tryParse(value.toString());
+
+    return int.tryParse(value.toString().trim());
   }
 
   static DateTime? _toDateTime(dynamic value) {
     if (value == null) return null;
     if (value is Timestamp) return value.toDate();
     if (value is DateTime) return value;
+
     return DateTime.tryParse(value.toString());
   }
 }

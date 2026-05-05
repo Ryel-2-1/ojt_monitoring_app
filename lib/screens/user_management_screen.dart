@@ -24,7 +24,9 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final userRepo = AppServices.of(context).userRepository;
+    final services = AppServices.of(context);
+    final userRepo = services.userRepository;
+    final supervisorUid = services.authService.currentUser?.uid;
 
     return Padding(
       padding: const EdgeInsets.all(32),
@@ -37,7 +39,10 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
           const SizedBox(height: 24),
           Expanded(
             child: StreamBuilder<List<UserModel>>(
-              stream: userRepo.streamInternUsers(),
+              stream: userRepo.streamInternUsers(
+             supervisorUid: supervisorUid,
+             includeUnassigned: true,
+            ),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(

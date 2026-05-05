@@ -25,26 +25,7 @@ class CompanyModel {
     this.updatedAt,
   });
 
-  Map<String, dynamic> toMap() {
-    return {
-      'companyName': companyName,
-      'companyAddress': companyAddress,
-      'assignedLatitude': assignedLatitude,
-      'assignedLongitude': assignedLongitude,
-      'allowedRadius': allowedRadius,
-      'isActive': isActive,
-      'createdBySupervisorUid': createdBySupervisorUid,
-      'createdAt': createdAt != null
-          ? Timestamp.fromDate(createdAt!)
-          : FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    };
-  }
-
-  factory CompanyModel.fromMap(
-    Map<String, dynamic> map, {
-    String? id,
-  }) {
+  factory CompanyModel.fromMap(Map<String, dynamic> map, {String? id}) {
     return CompanyModel(
       id: id,
       companyName: map['companyName']?.toString() ?? '',
@@ -52,11 +33,29 @@ class CompanyModel {
       assignedLatitude: _toDouble(map['assignedLatitude']),
       assignedLongitude: _toDouble(map['assignedLongitude']),
       allowedRadius: _toDouble(map['allowedRadius'], fallback: 50),
-      isActive: map['isActive'] == true,
+      isActive: _toBool(map['isActive']),
       createdBySupervisorUid: map['createdBySupervisorUid']?.toString(),
-      createdAt: _toDate(map['createdAt']),
-      updatedAt: _toDate(map['updatedAt']),
+      createdAt: _toDateTime(map['createdAt']),
+      updatedAt: _toDateTime(map['updatedAt']),
     );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'companyName': companyName.trim(),
+      'companyAddress': companyAddress.trim(),
+      'assignedLatitude': assignedLatitude,
+      'assignedLongitude': assignedLongitude,
+      'allowedRadius': allowedRadius,
+      'isActive': isActive,
+      'createdBySupervisorUid': createdBySupervisorUid,
+      'createdAt': createdAt == null
+          ? FieldValue.serverTimestamp()
+          : Timestamp.fromDate(createdAt!),
+      'updatedAt': updatedAt == null
+          ? FieldValue.serverTimestamp()
+          : Timestamp.fromDate(updatedAt!),
+    };
   }
 
   CompanyModel copyWith({
@@ -87,15 +86,29 @@ class CompanyModel {
   }
 
   static double _toDouble(dynamic value, {double fallback = 0}) {
-    if (value is int) return value.toDouble();
-    if (value is double) return value;
+    if (value == null) return fallback;
     if (value is num) return value.toDouble();
-    return double.tryParse(value?.toString() ?? '') ?? fallback;
+
+    return double.tryParse(value.toString().trim()) ?? fallback;
   }
 
-  static DateTime? _toDate(dynamic value) {
+  static bool _toBool(dynamic value, {bool fallback = true}) {
+    if (value == null) return fallback;
+    if (value is bool) return value;
+
+    final text = value.toString().trim().toLowerCase();
+
+    if (text == 'true') return true;
+    if (text == 'false') return false;
+
+    return fallback;
+  }
+
+  static DateTime? _toDateTime(dynamic value) {
+    if (value == null) return null;
     if (value is Timestamp) return value.toDate();
     if (value is DateTime) return value;
-    return null;
+
+    return DateTime.tryParse(value.toString());
   }
 }

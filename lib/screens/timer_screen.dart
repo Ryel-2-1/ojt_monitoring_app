@@ -70,8 +70,10 @@ class _TimerScreenState extends State<TimerScreen>
       duration: const Duration(seconds: 3),
     )..repeat();
 
-    _ringAnimation =
-        CurvedAnimation(parent: _ringController, curve: Curves.linear);
+    _ringAnimation = CurvedAnimation(
+      parent: _ringController,
+      curve: Curves.linear,
+    );
   }
 
   @override
@@ -81,8 +83,9 @@ class _TimerScreenState extends State<TimerScreen>
     _didInit = true;
 
     final attendanceRepo = AppServices.of(context).attendanceRepository;
-    _locationService =
-        app_location.LocationService(attendanceRepository: attendanceRepo);
+    _locationService = app_location.LocationService(
+      attendanceRepository: attendanceRepo,
+    );
     _initializeFlow();
   }
 
@@ -100,18 +103,42 @@ class _TimerScreenState extends State<TimerScreen>
     try {
       final services = AppServices.of(context);
       final uid = services.authService.currentUser?.uid;
-      if (uid == null) throw Exception('User not authenticated.');
 
-      final geofence = await services.userRepository.getGeofenceSettings(uid);
-      _targetLat = geofence.latitude;
-      _targetLng = geofence.longitude;
-      _allowedRadius = geofence.radiusInMeters;
+      if (uid == null) {
+        throw Exception('User not authenticated.');
+      }
 
       final user = await services.userRepository.getUserByUid(uid);
-      final allLogs =
-          await services.attendanceRepository.getAttendanceByStudent(uid);
 
-      _requiredOjtHours = user?.requiredOjtHours ?? 0;
+      if (user == null) {
+        throw Exception('User profile not found.');
+      }
+
+      final assignmentError = _validateInternAssignment(user);
+
+      if (assignmentError != null) {
+        if (!mounted) return;
+
+        setState(() {
+          _requiredOjtHours = user.requiredOjtHours ?? 0;
+          _completedOjtHours = 0;
+          _isClockedIn = false;
+          _isLoading = false;
+          _errorMessage = assignmentError;
+          _statusMessage = null;
+        });
+
+        return;
+      }
+
+      _targetLat = user.assignedLatitude;
+      _targetLng = user.assignedLongitude;
+      _allowedRadius = user.allowedRadius;
+
+      final allLogs = await services.attendanceRepository
+          .getAttendanceByStudent(uid);
+
+      _requiredOjtHours = user.requiredOjtHours ?? 0;
       _completedOjtHours = _calculateCompletedHours(allLogs);
 
       final latestLog = await services.attendanceRepository.getLatestLog(uid);
@@ -128,17 +155,37 @@ class _TimerScreenState extends State<TimerScreen>
         setState(() {
           _isClockedIn = alreadyClockedIn;
           _isLoading = false;
+          _errorMessage = null;
         });
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Timer initialization failed: $e');
+
       if (mounted) {
-        _showError('Failed to load. Please go back and try again.');
+        _showError('Failed to load timer. Please go back and try again.');
       }
     }
   }
 
+  String? _validateInternAssignment(user) {
+    if (!user.hasActiveEnrollment) {
+      return 'Your OJT enrollment is not active yet. Please contact your supervisor to complete your company assignment before clocking in.';
+    }
+
+    if (!user.hasValidCompanyAssignment) {
+      return 'Your partner company geofence is incomplete. Please contact your supervisor to assign your company location and radius.';
+    }
+
+    if ((user.requiredOjtHours ?? 0) <= 0) {
+      return 'Your required OJT hours are not set yet. Please contact your supervisor before clocking in.';
+    }
+
+    return null;
+  }
+
   double _calculateCompletedHours(List<AttendanceModel> logs) {
-    final sorted = [...logs]..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    final sorted = [...logs]
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
 
     double totalHours = 0;
     DateTime? lastClockIn;
@@ -161,8 +208,9 @@ class _TimerScreenState extends State<TimerScreen>
     final uid = services.authService.currentUser?.uid;
     if (uid == null) return;
 
-    final allLogs =
-        await services.attendanceRepository.getAttendanceByStudent(uid);
+    final allLogs = await services.attendanceRepository.getAttendanceByStudent(
+      uid,
+    );
 
     if (!mounted) return;
     setState(() {
@@ -191,12 +239,7 @@ class _TimerScreenState extends State<TimerScreen>
     }
   }
 
-  double _distanceMeters(
-    double lat1,
-    double lng1,
-    double lat2,
-    double lng2,
-  ) {
+  double _distanceMeters(double lat1, double lng1, double lat2, double lng2) {
     return Geolocator.distanceBetween(lat1, lng1, lat2, lng2);
   }
 
@@ -232,29 +275,30 @@ class _TimerScreenState extends State<TimerScreen>
       }
     }
 
-    _positionStreamSub = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 5,
-      ),
-    ).listen((Position position) async {
-      try {
-        await services.liveLocationRepository.upsertLiveLocation(
-          uid: currentUser.uid,
-          fullName: currentUser.displayName ?? 'Intern',
-          email: currentUser.email ?? '',
-          latitude: position.latitude,
-          longitude: position.longitude,
-          accuracy: position.accuracy,
-          isClockedIn: true,
-          lastStatus: 'Clock-In',
-        );
+    _positionStreamSub =
+        Geolocator.getPositionStream(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 5,
+          ),
+        ).listen((Position position) async {
+          try {
+            await services.liveLocationRepository.upsertLiveLocation(
+              uid: currentUser.uid,
+              fullName: currentUser.displayName ?? 'Intern',
+              email: currentUser.email ?? '',
+              latitude: position.latitude,
+              longitude: position.longitude,
+              accuracy: position.accuracy,
+              isClockedIn: true,
+              lastStatus: 'Clock-In',
+            );
 
-        await _evaluateGeofenceForAutoStop(position);
-      } catch (e) {
-        debugPrint('Live tracking update failed: $e');
-      }
-    });
+            await _evaluateGeofenceForAutoStop(position);
+          } catch (e) {
+            debugPrint('Live tracking update failed: $e');
+          }
+        });
   }
 
   Future<void> _evaluateGeofenceForAutoStop(Position position) async {
@@ -383,36 +427,35 @@ class _TimerScreenState extends State<TimerScreen>
       _outsideCountdownSeconds = _outsideGeofenceGracePeriod.inSeconds;
     }
 
-    _outsideCountdownTimer = Timer.periodic(
-      const Duration(seconds: 1),
-      (timer) {
-        if (!mounted) {
-          timer.cancel();
-          return;
-        }
+    _outsideCountdownTimer = Timer.periodic(const Duration(seconds: 1), (
+      timer,
+    ) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
 
-        final startedAt = _outsideGeofenceStartedAt;
-        if (startedAt == null) {
-          timer.cancel();
-          return;
-        }
+      final startedAt = _outsideGeofenceStartedAt;
+      if (startedAt == null) {
+        timer.cancel();
+        return;
+      }
 
-        final elapsed = DateTime.now().difference(startedAt).inSeconds;
-        final remaining = _outsideGeofenceGracePeriod.inSeconds - elapsed;
+      final elapsed = DateTime.now().difference(startedAt).inSeconds;
+      final remaining = _outsideGeofenceGracePeriod.inSeconds - elapsed;
 
-        if (remaining <= 0) {
-          setState(() {
-            _outsideCountdownSeconds = 0;
-          });
-          timer.cancel();
-          return;
-        }
-
+      if (remaining <= 0) {
         setState(() {
-          _outsideCountdownSeconds = remaining;
+          _outsideCountdownSeconds = 0;
         });
-      },
-    );
+        timer.cancel();
+        return;
+      }
+
+      setState(() {
+        _outsideCountdownSeconds = remaining;
+      });
+    });
   }
 
   void _resetOutsideGeofenceWarning({bool updateUi = true}) {
@@ -448,7 +491,15 @@ class _TimerScreenState extends State<TimerScreen>
   }
 
   Future<void> _handleStart() async {
-    if (_isClockedIn || _targetLat == null) return;
+    if (_isClockedIn) return;
+
+    if (_targetLat == null || _targetLng == null || _allowedRadius == null) {
+      _showError(
+        'Your OJT company assignment is incomplete. Please contact your supervisor before clocking in.',
+      );
+      return;
+    }
+
     await _handleClockInOut(AttendanceStatus.clockIn);
   }
 
@@ -577,8 +628,10 @@ class _TimerScreenState extends State<TimerScreen>
   }
 
   Future<void> _handleClockInOut(AttendanceStatus status) async {
-    if (_targetLat == null || _targetLng == null) {
-      _showError('Geofence configuration is missing.');
+    if (_targetLat == null || _targetLng == null || _allowedRadius == null) {
+      _showError(
+        'Your OJT company assignment is incomplete. Please contact your supervisor before clocking in.',
+      );
       return;
     }
 
@@ -628,7 +681,9 @@ class _TimerScreenState extends State<TimerScreen>
     } catch (e) {
       debugPrint('Clock action failed: $e');
       if (mounted) {
-        _showError('Clock action failed. Please check your location and try again.');
+        _showError(
+          'Clock action failed. Please check your location and try again.',
+        );
       }
     }
   }
@@ -661,9 +716,9 @@ class _TimerScreenState extends State<TimerScreen>
         break;
 
       case 3:
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const ProfileScreen()),
-        );
+        Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const ProfileScreen()));
         break;
     }
   }
@@ -767,10 +822,7 @@ class _TimerScreenState extends State<TimerScreen>
       decoration: BoxDecoration(
         color: const Color(0xFFFFF3E0),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: const Color(0xFFFF9800),
-          width: 1.4,
-        ),
+        border: Border.all(color: const Color(0xFFFF9800), width: 1.4),
         boxShadow: [
           BoxShadow(
             color: const Color(0xFFFF9800).withOpacity(0.12),
@@ -815,9 +867,10 @@ class _TimerScreenState extends State<TimerScreen>
                   borderRadius: BorderRadius.circular(999),
                   child: LinearProgressIndicator(
                     minHeight: 8,
-                    value: (_outsideCountdownSeconds /
-                            _outsideGeofenceGracePeriod.inSeconds)
-                        .clamp(0.0, 1.0),
+                    value:
+                        (_outsideCountdownSeconds /
+                                _outsideGeofenceGracePeriod.inSeconds)
+                            .clamp(0.0, 1.0),
                     backgroundColor: const Color(0xFFFFCC80),
                     valueColor: const AlwaysStoppedAnimation<Color>(
                       Color(0xFFE65100),
@@ -912,8 +965,9 @@ class _TimerScreenState extends State<TimerScreen>
     final required = _requiredOjtHours ?? 0;
     final completed = _completedOjtHours;
     final remaining = math.max(0, required.toDouble() - completed);
-    final progress =
-        required <= 0 ? 0.0 : (completed / required).clamp(0.0, 1.0);
+    final progress = required <= 0
+        ? 0.0
+        : (completed / required).clamp(0.0, 1.0);
 
     return Container(
       width: double.infinity,
@@ -981,10 +1035,7 @@ class _TimerScreenState extends State<TimerScreen>
           const SizedBox(height: 8),
           Text(
             '${(progress * 100).toStringAsFixed(1)}% completed',
-            style: GoogleFonts.dmSans(
-              fontSize: 12,
-              color: Colors.grey[600],
-            ),
+            style: GoogleFonts.dmSans(fontSize: 12, color: Colors.grey[600]),
           ),
         ],
       ),
@@ -1007,10 +1058,7 @@ class _TimerScreenState extends State<TimerScreen>
         children: [
           Text(
             label,
-            style: GoogleFonts.dmSans(
-              fontSize: 11,
-              color: Colors.grey[600],
-            ),
+            style: GoogleFonts.dmSans(fontSize: 11, color: Colors.grey[600]),
           ),
           const SizedBox(height: 6),
           Text(
@@ -1146,12 +1194,15 @@ class _TimerScreenState extends State<TimerScreen>
 
   Widget _buildStatusBanner() {
     final bool isError = _errorMessage != null;
-    final Color bg =
-        isError ? const Color(0xFFFFEBEE) : const Color(0xFFE8F5E9);
-    final Color fg =
-        isError ? const Color(0xFFC62828) : const Color(0xFF2E7D32);
-    final IconData icon =
-        isError ? Icons.error_outline_rounded : Icons.check_circle_outline;
+    final Color bg = isError
+        ? const Color(0xFFFFEBEE)
+        : const Color(0xFFE8F5E9);
+    final Color fg = isError
+        ? const Color(0xFFC62828)
+        : const Color(0xFF2E7D32);
+    final IconData icon = isError
+        ? Icons.error_outline_rounded
+        : Icons.check_circle_outline;
 
     return Container(
       width: double.infinity,
@@ -1253,9 +1304,7 @@ class _TimerScreenState extends State<TimerScreen>
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 18),
       decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(
-          top: BorderSide(color: Color(0xFFE9EEF5)),
-        ),
+        border: Border(top: BorderSide(color: Color(0xFFE9EEF5))),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -1273,16 +1322,14 @@ class _TimerScreenState extends State<TimerScreen>
                   Icon(
                     items[i].$1,
                     size: 20,
-                    color:
-                        active ? const Color(0xFF0D4DB3) : Colors.grey[400],
+                    color: active ? const Color(0xFF0D4DB3) : Colors.grey[400],
                   ),
                   const SizedBox(height: 4),
                   Text(
                     items[i].$2,
                     style: GoogleFonts.dmSans(
                       fontSize: 9,
-                      fontWeight:
-                          active ? FontWeight.w700 : FontWeight.w500,
+                      fontWeight: active ? FontWeight.w700 : FontWeight.w500,
                       color: active
                           ? const Color(0xFF0D4DB3)
                           : Colors.grey[400],
@@ -1303,10 +1350,7 @@ class _RingPainter extends CustomPainter {
   final double progress;
   final bool active;
 
-  _RingPainter({
-    required this.progress,
-    required this.active,
-  });
+  _RingPainter({required this.progress, required this.active});
 
   @override
   void paint(Canvas canvas, Size size) {

@@ -135,35 +135,96 @@ class UserRepository {
     );
   }
 
-  Stream<List<UserModel>> streamInternUsers() {
-    return _firestoreService
-        .streamCollection(
-          path: collectionPath,
-          field: 'role',
-          value: UserRole.intern.value,
-          orderBy: 'fullName',
-        )
-        .map(
-          (rows) => rows
-              .map((row) => UserModel.fromMap(row, id: row['id']?.toString()))
-              .toList(),
-        );
-  }
-
-  Future<List<UserModel>> getInternUsers() async {
-    try {
-      final rows = await _firestoreService.queryCollection(
+  Stream<List<UserModel>> streamInternUsers({
+  String? supervisorUid,
+  bool includeUnassigned = true,
+}) {
+  return _firestoreService
+      .streamCollection(
         path: collectionPath,
         field: 'role',
         value: UserRole.intern.value,
         orderBy: 'fullName',
-      );
+      )
+      .map((rows) {
+    final users = rows
+        .map((row) => UserModel.fromMap(row, id: row['id']?.toString()))
+        .where((user) {
+      if (supervisorUid == null || supervisorUid.trim().isEmpty) {
+        return true;
+      }
 
-      return rows
-          .map((row) => UserModel.fromMap(row, id: row['id']?.toString()))
-          .toList();
-    } catch (_) {
-      throw Exception('Failed to fetch intern users.');
-    }
+      final assignedSupervisorUid = user.supervisorUid?.trim();
+
+      final assignedToCurrentSupervisor =
+          assignedSupervisorUid == supervisorUid.trim();
+
+      final unassigned = assignedSupervisorUid == null ||
+          assignedSupervisorUid.isEmpty ||
+          (user.enrollmentStatus == null ||
+              user.enrollmentStatus!.trim().isEmpty);
+
+      if (includeUnassigned) {
+        return assignedToCurrentSupervisor || unassigned;
+      }
+
+      return assignedToCurrentSupervisor;
+    }).toList();
+
+    users.sort(
+      (a, b) => a.fullName.toLowerCase().compareTo(
+            b.fullName.toLowerCase(),
+          ),
+    );
+
+    return users;
+  });
+}
+
+Future<List<UserModel>> getInternUsers({
+  String? supervisorUid,
+  bool includeUnassigned = true,
+}) async {
+  try {
+    final rows = await _firestoreService.queryCollection(
+      path: collectionPath,
+      field: 'role',
+      value: UserRole.intern.value,
+      orderBy: 'fullName',
+    );
+
+    final users = rows
+        .map((row) => UserModel.fromMap(row, id: row['id']?.toString()))
+        .where((user) {
+      if (supervisorUid == null || supervisorUid.trim().isEmpty) {
+        return true;
+      }
+
+      final assignedSupervisorUid = user.supervisorUid?.trim();
+
+      final assignedToCurrentSupervisor =
+          assignedSupervisorUid == supervisorUid.trim();
+
+      final unassigned = assignedSupervisorUid == null ||
+          assignedSupervisorUid.isEmpty ||
+          (user.enrollmentStatus == null ||
+              user.enrollmentStatus!.trim().isEmpty);
+
+      if (includeUnassigned) {
+        return assignedToCurrentSupervisor || unassigned;
+      }
+
+      return assignedToCurrentSupervisor;
+    }).toList();
+
+    users.sort(
+      (a, b) => a.fullName.toLowerCase().compareTo(
+            b.fullName.toLowerCase(),
+          ),
+    );
+
+    return users;
+  } catch (_) {
+    throw Exception('Failed to fetch intern users.');
   }
 }

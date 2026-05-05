@@ -78,9 +78,11 @@ class FirestoreService {
     required String path,
     required String docId,
   }) {
-    return _db.collection(path).doc(docId).snapshots().map(
-          (snapshot) => snapshot.exists ? snapshot.data() : null,
-        );
+    return _db
+        .collection(path)
+        .doc(docId)
+        .snapshots()
+        .map((snapshot) => snapshot.exists ? snapshot.data() : null);
   }
 
   // --- QUERY a collection ---
@@ -96,8 +98,9 @@ class FirestoreService {
     int? limit,
   }) async {
     try {
-      Query<Map<String, dynamic>> query =
-          _db.collection(path).where(field, isEqualTo: value);
+      Query<Map<String, dynamic>> query = _db
+          .collection(path)
+          .where(field, isEqualTo: value);
 
       if (orderBy != null) {
         query = query.orderBy(orderBy, descending: descending);
@@ -122,18 +125,18 @@ class FirestoreService {
     String? orderBy,
     bool descending = false,
   }) {
-    Query<Map<String, dynamic>> query =
-        _db.collection(path).where(field, isEqualTo: value);
+    Query<Map<String, dynamic>> query = _db
+        .collection(path)
+        .where(field, isEqualTo: value);
 
     if (orderBy != null) {
       query = query.orderBy(orderBy, descending: descending);
     }
 
     return query.snapshots().map(
-          (snapshot) => snapshot.docs
-              .map((doc) => {'id': doc.id, ...doc.data()})
-              .toList(),
-        );
+      (snapshot) =>
+          snapshot.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList(),
+    );
   }
 
   // --- UPDATE specific fields ---

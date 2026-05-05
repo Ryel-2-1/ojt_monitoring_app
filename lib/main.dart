@@ -13,6 +13,7 @@ import 'repositories/role_repository.dart';
 import 'repositories/student_repository.dart';
 import 'repositories/time_request_repository.dart';
 import 'repositories/user_repository.dart';
+import 'repositories/enrollment_repository.dart';
 import 'screens/admin_dashboard_layout.dart';
 import 'screens/intern_home_screen.dart';
 import 'screens/login_screen.dart';
@@ -52,6 +53,7 @@ class AppServices extends InheritedWidget {
   final LiveLocationRepository liveLocationRepository;
   final TimeRequestRepository timeRequestRepository;
   final CompanyRepository companyRepository;
+  final EnrollmentRepository enrollmentRepository;
 
   const AppServices({
     super.key,
@@ -63,6 +65,7 @@ class AppServices extends InheritedWidget {
     required this.liveLocationRepository,
     required this.timeRequestRepository,
     required this.companyRepository,
+    required this.enrollmentRepository,
     required super.child,
   });
 
@@ -90,13 +93,12 @@ class OjtApp extends StatelessWidget {
       liveLocationRepository: LiveLocationRepository(),
       timeRequestRepository: TimeRequestRepository(),
       companyRepository: CompanyRepository(),
+      enrollmentRepository: EnrollmentRepository(),
       child: MaterialApp(
         title: 'GeoAI OJT Monitoring System',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF1565C0),
-          ),
+          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1565C0)),
           useMaterial3: true,
         ),
         home: const AuthGate(),
@@ -130,9 +132,7 @@ class AuthGate extends StatelessWidget {
           future: userRepository.getUserRoleWithRetry(firebaseUser.uid),
           builder: (context, roleSnapshot) {
             if (roleSnapshot.connectionState == ConnectionState.waiting) {
-              return const _LoadingScreen(
-                message: 'Verifying your account...',
-              );
+              return const _LoadingScreen(message: 'Verifying your account...');
             }
 
             if (roleSnapshot.hasError) {
@@ -162,9 +162,7 @@ class AuthGate extends StatelessWidget {
             }
 
             if (kIsWeb && role == UserRole.supervisor) {
-              return const AdminDashboardLayout(
-                activeRoute: 'Live Monitoring',
-              );
+              return const AdminDashboardLayout(activeRoute: 'Live Monitoring');
             }
 
             if (kIsWeb) {
@@ -188,9 +186,7 @@ class AuthGate extends StatelessWidget {
 class _LoadingScreen extends StatelessWidget {
   final String? message;
 
-  const _LoadingScreen({
-    this.message,
-  });
+  const _LoadingScreen({this.message});
 
   @override
   Widget build(BuildContext context) {
@@ -208,10 +204,7 @@ class _LoadingScreen extends StatelessWidget {
               Text(
                 message!,
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.grey[600],
-                  fontSize: 13,
-                ),
+                style: TextStyle(color: Colors.grey[600], fontSize: 13),
               ),
             ],
           ],

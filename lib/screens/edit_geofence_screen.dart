@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -5,13 +6,11 @@ import '../main.dart';
 import '../models/company_model.dart';
 import '../models/user_model.dart';
 
+
 class EditGeofenceScreen extends StatefulWidget {
   final String userUid;
 
-  const EditGeofenceScreen({
-    super.key,
-    required this.userUid,
-  });
+  const EditGeofenceScreen({super.key, required this.userUid});
 
   @override
   State<EditGeofenceScreen> createState() => _EditGeofenceScreenState();
@@ -20,9 +19,11 @@ class EditGeofenceScreen extends StatefulWidget {
 class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
   final _formKey = GlobalKey<FormState>();
 
-  final TextEditingController _requiredHoursController = TextEditingController();
+  final TextEditingController _requiredHoursController =
+      TextEditingController();
   final TextEditingController _companyNameController = TextEditingController();
-  final TextEditingController _companyAddressController = TextEditingController();
+  final TextEditingController _companyAddressController =
+      TextEditingController();
   final TextEditingController _longitudeController = TextEditingController();
   final TextEditingController _latitudeController = TextEditingController();
   final TextEditingController _radiusController = TextEditingController();
@@ -91,10 +92,12 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
       _internshipStartDate = user.internshipStartDate;
       _internshipEndDate = user.internshipEndDate;
 
-      _internshipStartDateController.text =
-          _internshipStartDate != null ? _formatDate(_internshipStartDate!) : '';
-      _internshipEndDateController.text =
-          _internshipEndDate != null ? _formatDate(_internshipEndDate!) : '';
+      _internshipStartDateController.text = _internshipStartDate != null
+          ? _formatDate(_internshipStartDate!)
+          : '';
+      _internshipEndDateController.text = _internshipEndDate != null
+          ? _formatDate(_internshipEndDate!)
+          : '';
 
       if (!mounted) return;
       setState(() {
@@ -166,56 +169,104 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
   }
 
   Future<void> _handleSave() async {
-    if (_loadedUser == null) return;
-    if (!_formKey.currentState!.validate()) return;
+  if (_loadedUser == null) return;
+  if (!_formKey.currentState!.validate()) return;
+
+  setState(() {
+    _isSaving = true;
+    _errorMessage = null;
+  });
+
+  try {
+    final services = AppServices.of(context);
+    final userRepo = services.userRepository;
+    final enrollmentRepo = services.enrollmentRepository;
+
+    final supervisorUid = services.authService.currentUser?.uid;
+
+    if (supervisorUid == null || supervisorUid.trim().isEmpty) {
+      throw Exception('Supervisor account not found.');
+    }
+
+    final supervisor = await userRepo.getUserByUid(supervisorUid);
+
+    if (supervisor == null || supervisor.role != UserRole.supervisor) {
+      throw Exception('Only supervisors can assign interns.');
+    }
+
+    if (_selectedCompanyId == null || _selectedCompanyId!.trim().isEmpty) {
+      throw Exception('Please select a partner company.');
+    }
+
+    final requiredOjtHours =
+        int.tryParse(_requiredHoursController.text.trim()) ?? 480;
+
+    final assignedLatitude = double.parse(_latitudeController.text.trim());
+    final assignedLongitude = double.parse(_longitudeController.text.trim());
+    final allowedRadius = double.parse(_radiusController.text.trim());
+
+    final enrollmentId = await enrollmentRepo.createOrUpdateActiveEnrollment(
+      intern: _loadedUser!,
+      supervisor: supervisor,
+      companyId: _selectedCompanyId!,
+      companyName: _companyNameController.text.trim(),
+      companyAddress: _companyAddressController.text.trim(),
+      assignedLatitude: assignedLatitude,
+      assignedLongitude: assignedLongitude,
+      allowedRadius: allowedRadius,
+      requiredOjtHours: requiredOjtHours,
+      internshipStartDate: _internshipStartDate,
+      internshipEndDate: _internshipEndDate,
+    );
+
+    await userRepo.updateUser(
+      _loadedUser!.uid,
+      {
+        'supervisorUid': supervisor.uid,
+        'supervisorName': supervisor.fullName,
+        'supervisorEmail': supervisor.email,
+        'enrollmentId': enrollmentId,
+        'enrollmentStatus': 'active',
+        'companyId': _selectedCompanyId,
+        'companyName': _companyNameController.text.trim(),
+        'companyAddress': _companyAddressController.text.trim(),
+        'assignedLatitude': assignedLatitude,
+        'assignedLongitude': assignedLongitude,
+        'allowedRadius': allowedRadius,
+        'requiredOjtHours': requiredOjtHours,
+        'internshipStartDate': _internshipStartDate == null
+            ? null
+            : Timestamp.fromDate(_internshipStartDate!),
+        'internshipEndDate': _internshipEndDate == null
+            ? null
+            : Timestamp.fromDate(_internshipEndDate!),
+      },
+    );
+
+    await _loadUser();
+
+    if (!mounted) return;
 
     setState(() {
-      _isSaving = true;
-      _errorMessage = null;
+      _isSaving = false;
     });
 
-    try {
-      final userRepo = AppServices.of(context).userRepository;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Student assignment and enrollment saved successfully.'),
+        backgroundColor: Colors.green,
+        duration: Duration(seconds: 2),
+      ),
+    );
+  } catch (e) {
+    if (!mounted) return;
 
-      await userRepo.updateUser(
-        _loadedUser!.uid,
-        {
-          'companyId': _selectedCompanyId,
-          'companyName': _companyNameController.text.trim(),
-          'companyAddress': _companyAddressController.text.trim(),
-          'assignedLatitude': double.parse(_latitudeController.text.trim()),
-          'assignedLongitude': double.parse(_longitudeController.text.trim()),
-          'allowedRadius': double.parse(_radiusController.text.trim()),
-          'requiredOjtHours':
-              int.tryParse(_requiredHoursController.text.trim()) ?? 480,
-          'internshipStartDate': _internshipStartDate,
-          'internshipEndDate': _internshipEndDate,
-        },
-      );
-
-      await _loadUser();
-
-      if (!mounted) return;
-
-      setState(() {
-        _isSaving = false;
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Student assignment updated successfully.'),
-          backgroundColor: Colors.green,
-          duration: Duration(seconds: 2),
-        ),
-      );
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _isSaving = false;
-        _errorMessage = 'Failed to save assignment. Please check the details and try again.';
-      });
-    }
+    setState(() {
+      _isSaving = false;
+      _errorMessage = e.toString().replaceFirst('Exception: ', '');
+    });
   }
+}
 
   @override
   Widget build(BuildContext context) {
@@ -427,9 +478,9 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
         _sectionTitle('Partner Company'),
         const SizedBox(height: 10),
         StreamBuilder<List<CompanyModel>>(
-          stream: AppServices.of(context)
-              .companyRepository
-              .streamCompanies(activeOnly: true),
+          stream: AppServices.of(
+            context,
+          ).companyRepository.streamCompanies(activeOnly: true),
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Padding(
@@ -439,10 +490,10 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
             }
 
             if (snapshot.hasError) {
-              return _buildErrorBox(
-                'Could not load partner companies. Please check Firestore permissions.',
-              );
-            }
+  return _buildErrorBox(
+    'Could not load partner companies: ${snapshot.error}',
+  );
+}
 
             final companies = snapshot.data ?? [];
 
