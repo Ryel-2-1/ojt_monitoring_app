@@ -1,5 +1,7 @@
 // lib/repositories/user_repository.dart
 
+import 'dart:math';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../models/geofence_settings.dart';
@@ -10,7 +12,7 @@ class UserRepository {
   final FirestoreService _firestoreService;
 
   UserRepository({FirestoreService? firestoreService})
-      : _firestoreService = firestoreService ?? FirestoreService();
+    : _firestoreService = firestoreService ?? FirestoreService();
 
   static const String collectionPath = 'users';
 
@@ -104,10 +106,7 @@ class UserRepository {
       await _firestoreService.updateDocument(
         path: collectionPath,
         docId: uid,
-        data: {
-          ...fields,
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
+        data: {...fields, 'updatedAt': FieldValue.serverTimestamp()},
       );
     } catch (_) {
       throw Exception('Failed to update user profile.');
@@ -136,95 +135,195 @@ class UserRepository {
   }
 
   Stream<List<UserModel>> streamInternUsers({
-  String? supervisorUid,
-  bool includeUnassigned = true,
-}) {
-  return _firestoreService
-      .streamCollection(
+    String? supervisorUid,
+    bool includeUnassigned = false,
+  }) {
+    return _firestoreService
+        .streamCollection(
+          path: collectionPath,
+          field: 'role',
+          value: UserRole.intern.value,
+          orderBy: 'fullName',
+        )
+        .map((rows) {
+          final users = rows
+              .map((row) => UserModel.fromMap(row, id: row['id']?.toString()))
+              .where((user) {
+                if (supervisorUid == null || supervisorUid.trim().isEmpty) {
+                  return true;
+                }
+
+                final assignedSupervisorUid = user.supervisorUid?.trim();
+                final assignedToCurrentSupervisor =
+                    assignedSupervisorUid == supervisorUid.trim();
+
+                final unassigned =
+                    assignedSupervisorUid == null ||
+                    assignedSupervisorUid.isEmpty;
+
+                if (includeUnassigned) {
+                  return assignedToCurrentSupervisor || unassigned;
+                }
+
+                return assignedToCurrentSupervisor;
+              })
+              .toList();
+
+          users.sort(
+            (a, b) =>
+                a.fullName.toLowerCase().compareTo(b.fullName.toLowerCase()),
+          );
+
+          return users;
+        });
+  }
+
+  Future<List<UserModel>> getInternUsers({
+    String? supervisorUid,
+    bool includeUnassigned = false,
+  }) async {
+    try {
+      final rows = await _firestoreService.queryCollection(
         path: collectionPath,
         field: 'role',
         value: UserRole.intern.value,
         orderBy: 'fullName',
-      )
-      .map((rows) {
-    final users = rows
-        .map((row) => UserModel.fromMap(row, id: row['id']?.toString()))
-        .where((user) {
-      if (supervisorUid == null || supervisorUid.trim().isEmpty) {
-        return true;
+      );
+
+      final users = rows
+          .map((row) => UserModel.fromMap(row, id: row['id']?.toString()))
+          .where((user) {
+            if (supervisorUid == null || supervisorUid.trim().isEmpty) {
+              return true;
+            }
+
+            final assignedSupervisorUid = user.supervisorUid?.trim();
+            final assignedToCurrentSupervisor =
+                assignedSupervisorUid == supervisorUid.trim();
+
+            final unassigned =
+                assignedSupervisorUid == null || assignedSupervisorUid.isEmpty;
+
+            if (includeUnassigned) {
+              return assignedToCurrentSupervisor || unassigned;
+            }
+
+            return assignedToCurrentSupervisor;
+          })
+          .toList();
+
+      users.sort(
+        (a, b) => a.fullName.toLowerCase().compareTo(b.fullName.toLowerCase()),
+      );
+
+      return users;
+    } catch (_) {
+      throw Exception('Failed to fetch intern users.');
+    }
+  }
+
+  Future<String> generateSupervisorEnrollmentCode(String supervisorUid) async {
+    final supervisor = await getUserByUid(supervisorUid);
+
+    if (supervisor == null) {
+      throw Exception('Supervisor profile not found.');
+    }
+
+    if (supervisor.role != UserRole.supervisor) {
+      throw Exception('Only supervisors can generate enrollment codes.');
+    }
+
+    String code = '';
+    bool isUnique = false;
+
+    for (int attempt = 0; attempt < 10; attempt++) {
+      code = _generateCode();
+
+      final existing = await getSupervisorByEnrollmentCode(code);
+
+      if (existing == null) {
+        isUnique = true;
+        break;
       }
+    }
 
-      final assignedSupervisorUid = user.supervisorUid?.trim();
+    if (!isUnique) {
+      throw Exception('Could not generate a unique enrollment code.');
+    }
 
-      final assignedToCurrentSupervisor =
-          assignedSupervisorUid == supervisorUid.trim();
+    await updateUser(supervisorUid, {
+      'enrollmentCode': code,
+      'enrollmentCodeUpdatedAt': FieldValue.serverTimestamp(),
+    });
 
-      final unassigned = assignedSupervisorUid == null ||
-          assignedSupervisorUid.isEmpty ||
-          (user.enrollmentStatus == null ||
-              user.enrollmentStatus!.trim().isEmpty);
+    return code;
+  }
 
-      if (includeUnassigned) {
-        return assignedToCurrentSupervisor || unassigned;
-      }
+  Future<UserModel?> getSupervisorByEnrollmentCode(String code) async {
+    final cleanedCode = _normalizeEnrollmentCode(code);
 
-      return assignedToCurrentSupervisor;
-    }).toList();
+    if (cleanedCode.isEmpty) return null;
 
-    users.sort(
-      (a, b) => a.fullName.toLowerCase().compareTo(
-            b.fullName.toLowerCase(),
-          ),
-    );
+    final snapshot = await _firestoreService
+        .collection(collectionPath)
+        .where('role', isEqualTo: UserRole.supervisor.value)
+        .where('enrollmentCode', isEqualTo: cleanedCode)
+        .limit(1)
+        .get();
 
-    return users;
-  });
-}
+    if (snapshot.docs.isEmpty) return null;
 
-Future<List<UserModel>> getInternUsers({
-  String? supervisorUid,
-  bool includeUnassigned = true,
-}) async {
-  try {
-    final rows = await _firestoreService.queryCollection(
-      path: collectionPath,
-      field: 'role',
-      value: UserRole.intern.value,
-      orderBy: 'fullName',
-    );
+    final doc = snapshot.docs.first;
+    return UserModel.fromMap(doc.data(), id: doc.id);
+  }
 
-    final users = rows
-        .map((row) => UserModel.fromMap(row, id: row['id']?.toString()))
-        .where((user) {
-      if (supervisorUid == null || supervisorUid.trim().isEmpty) {
-        return true;
-      }
+  Future<void> joinSupervisorByCode({
+    required String internUid,
+    required String code,
+  }) async {
+    final intern = await getUserByUid(internUid);
 
-      final assignedSupervisorUid = user.supervisorUid?.trim();
+    if (intern == null) {
+      throw Exception('Intern profile not found.');
+    }
 
-      final assignedToCurrentSupervisor =
-          assignedSupervisorUid == supervisorUid.trim();
+    if (intern.role != UserRole.intern) {
+      throw Exception('Only interns can join a supervisor.');
+    }
 
-      final unassigned = assignedSupervisorUid == null ||
-          assignedSupervisorUid.isEmpty ||
-          (user.enrollmentStatus == null ||
-              user.enrollmentStatus!.trim().isEmpty);
+    final supervisor = await getSupervisorByEnrollmentCode(code);
 
-      if (includeUnassigned) {
-        return assignedToCurrentSupervisor || unassigned;
-      }
+    if (supervisor == null) {
+      throw Exception(
+        'Invalid enrollment code. Please check the code and try again.',
+      );
+    }
 
-      return assignedToCurrentSupervisor;
-    }).toList();
+    await updateUser(internUid, {
+      'supervisorUid': supervisor.uid,
+      'supervisorName': supervisor.fullName,
+      'supervisorEmail': supervisor.email,
+      'joinedSupervisorAt': FieldValue.serverTimestamp(),
 
-    users.sort(
-      (a, b) => a.fullName.toLowerCase().compareTo(
-            b.fullName.toLowerCase(),
-          ),
-    );
+      // Joining a supervisor is not yet the final OJT enrollment.
+      // The supervisor still needs to assign company/geofence/OJT details.
+      'enrollmentStatus': intern.enrollmentStatus,
+    });
+  }
 
-    return users;
-  } catch (_) {
-    throw Exception('Failed to fetch intern users.');
+  String _generateCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    final random = Random.secure();
+
+    final suffix = List.generate(
+      6,
+      (_) => chars[random.nextInt(chars.length)],
+    ).join();
+
+    return 'SUP-$suffix';
+  }
+
+  String _normalizeEnrollmentCode(String code) {
+    return code.trim().toUpperCase().replaceAll(' ', '');
   }
 }

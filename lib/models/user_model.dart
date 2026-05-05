@@ -39,9 +39,13 @@ class UserModel {
   final String fullName;
   final UserRole role;
 
+  final String? enrollmentCode;
+  final DateTime? enrollmentCodeUpdatedAt;
+
   final String? supervisorUid;
   final String? supervisorName;
   final String? supervisorEmail;
+  final DateTime? joinedSupervisorAt;
 
   final String? enrollmentId;
   final String? enrollmentStatus;
@@ -63,9 +67,12 @@ class UserModel {
     required this.email,
     required this.fullName,
     required this.role,
+    this.enrollmentCode,
+    this.enrollmentCodeUpdatedAt,
     this.supervisorUid,
     this.supervisorName,
     this.supervisorEmail,
+    this.joinedSupervisorAt,
     this.enrollmentId,
     this.enrollmentStatus,
     this.companyId,
@@ -87,9 +94,12 @@ class UserModel {
       role:
           UserRoleExtension.fromString(map['role']?.toString()) ??
           UserRole.intern,
+      enrollmentCode: map['enrollmentCode']?.toString(),
+      enrollmentCodeUpdatedAt: _toDateTime(map['enrollmentCodeUpdatedAt']),
       supervisorUid: map['supervisorUid']?.toString(),
       supervisorName: map['supervisorName']?.toString(),
       supervisorEmail: map['supervisorEmail']?.toString(),
+      joinedSupervisorAt: _toDateTime(map['joinedSupervisorAt']),
       enrollmentId: map['enrollmentId']?.toString(),
       enrollmentStatus: map['enrollmentStatus']?.toString(),
       companyId: map['companyId']?.toString(),
@@ -110,9 +120,16 @@ class UserModel {
       'email': email,
       'fullName': fullName,
       'role': role.value,
+      'enrollmentCode': enrollmentCode,
+      'enrollmentCodeUpdatedAt': enrollmentCodeUpdatedAt == null
+          ? null
+          : Timestamp.fromDate(enrollmentCodeUpdatedAt!),
       'supervisorUid': supervisorUid,
       'supervisorName': supervisorName,
       'supervisorEmail': supervisorEmail,
+      'joinedSupervisorAt': joinedSupervisorAt == null
+          ? null
+          : Timestamp.fromDate(joinedSupervisorAt!),
       'enrollmentId': enrollmentId,
       'enrollmentStatus': enrollmentStatus,
       'companyId': companyId,
@@ -136,9 +153,12 @@ class UserModel {
     String? email,
     String? fullName,
     UserRole? role,
+    String? enrollmentCode,
+    DateTime? enrollmentCodeUpdatedAt,
     String? supervisorUid,
     String? supervisorName,
     String? supervisorEmail,
+    DateTime? joinedSupervisorAt,
     String? enrollmentId,
     String? enrollmentStatus,
     String? companyId,
@@ -156,9 +176,13 @@ class UserModel {
       email: email ?? this.email,
       fullName: fullName ?? this.fullName,
       role: role ?? this.role,
+      enrollmentCode: enrollmentCode ?? this.enrollmentCode,
+      enrollmentCodeUpdatedAt:
+          enrollmentCodeUpdatedAt ?? this.enrollmentCodeUpdatedAt,
       supervisorUid: supervisorUid ?? this.supervisorUid,
       supervisorName: supervisorName ?? this.supervisorName,
       supervisorEmail: supervisorEmail ?? this.supervisorEmail,
+      joinedSupervisorAt: joinedSupervisorAt ?? this.joinedSupervisorAt,
       enrollmentId: enrollmentId ?? this.enrollmentId,
       enrollmentStatus: enrollmentStatus ?? this.enrollmentStatus,
       companyId: companyId ?? this.companyId,
@@ -177,6 +201,10 @@ class UserModel {
     return enrollmentStatus?.trim().toLowerCase() == 'active';
   }
 
+  bool get hasJoinedSupervisor {
+    return supervisorUid != null && supervisorUid!.trim().isNotEmpty;
+  }
+
   bool get hasValidCompanyAssignment {
     return companyId != null &&
         companyId!.trim().isNotEmpty &&
@@ -189,14 +217,12 @@ class UserModel {
   static double? _toDouble(dynamic value) {
     if (value == null) return null;
     if (value is num) return value.toDouble();
-
     return double.tryParse(value.toString().trim());
   }
 
   static int? _toInt(dynamic value) {
     if (value == null) return null;
     if (value is num) return value.toInt();
-
     return int.tryParse(value.toString().trim());
   }
 
@@ -204,7 +230,6 @@ class UserModel {
     if (value == null) return null;
     if (value is Timestamp) return value.toDate();
     if (value is DateTime) return value;
-
     return DateTime.tryParse(value.toString());
   }
 }
