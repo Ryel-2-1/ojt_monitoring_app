@@ -11,8 +11,9 @@ import '../models/attendance_model.dart';
 import '../repositories/attendance_repository.dart';
 import '../services/location_service.dart' as app_location;
 
-import 'timesheet_screen.dart';
 import 'profile_screen.dart';
+import 'timesheet_screen.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 
 class TimerScreen extends StatefulWidget {
   const TimerScreen({super.key});
@@ -60,11 +61,12 @@ class _TimerScreenState extends State<TimerScreen>
   int? _requiredOjtHours;
   double _completedOjtHours = 0;
 
-  int _selectedNavIndex = 1;
+  final int _selectedNavIndex = 1;
 
   @override
   void initState() {
     super.initState();
+
     _ringController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 3),
@@ -79,13 +81,16 @@ class _TimerScreenState extends State<TimerScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+
     if (_didInit) return;
     _didInit = true;
 
     final attendanceRepo = AppServices.of(context).attendanceRepository;
+
     _locationService = app_location.LocationService(
       attendanceRepository: attendanceRepo,
     );
+
     _initializeFlow();
   }
 
@@ -142,6 +147,7 @@ class _TimerScreenState extends State<TimerScreen>
       _completedOjtHours = _calculateCompletedHours(allLogs);
 
       final latestLog = await services.attendanceRepository.getLatestLog(uid);
+
       bool alreadyClockedIn = false;
 
       if (latestLog?.status == AttendanceStatus.clockIn) {
@@ -151,13 +157,13 @@ class _TimerScreenState extends State<TimerScreen>
         await _startLiveTracking();
       }
 
-      if (mounted) {
-        setState(() {
-          _isClockedIn = alreadyClockedIn;
-          _isLoading = false;
-          _errorMessage = null;
-        });
-      }
+      if (!mounted) return;
+
+      setState(() {
+        _isClockedIn = alreadyClockedIn;
+        _isLoading = false;
+        _errorMessage = null;
+      });
     } catch (e) {
       debugPrint('Timer initialization failed: $e');
 
@@ -167,7 +173,7 @@ class _TimerScreenState extends State<TimerScreen>
     }
   }
 
-  String? _validateInternAssignment(user) {
+  String? _validateInternAssignment(dynamic user) {
     if (!user.hasActiveEnrollment) {
       return 'Your OJT enrollment is not active yet. Please contact your supervisor to complete your company assignment before clocking in.';
     }
@@ -203,9 +209,15 @@ class _TimerScreenState extends State<TimerScreen>
     return totalHours;
   }
 
+Future<bool> _hasNetworkConnection() async {
+  final results = await Connectivity().checkConnectivity();
+  return results.any((result) => result != ConnectivityResult.none);
+}
+
   Future<void> _refreshCompletedHours() async {
     final services = AppServices.of(context);
     final uid = services.authService.currentUser?.uid;
+
     if (uid == null) return;
 
     final allLogs = await services.attendanceRepository.getAttendanceByStudent(
@@ -213,6 +225,7 @@ class _TimerScreenState extends State<TimerScreen>
     );
 
     if (!mounted) return;
+
     setState(() {
       _completedOjtHours = _calculateCompletedHours(allLogs);
     });
@@ -220,8 +233,10 @@ class _TimerScreenState extends State<TimerScreen>
 
   void _startTimer(DateTime startTime) {
     _liveTimer?.cancel();
+
     _liveTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
+
       setState(() {
         _elapsedDuration = DateTime.now().difference(startTime);
       });
@@ -232,11 +247,12 @@ class _TimerScreenState extends State<TimerScreen>
     _liveTimer?.cancel();
     _liveTimer = null;
     _clockInTime = null;
-    if (mounted) {
-      setState(() {
-        _elapsedDuration = Duration.zero;
-      });
-    }
+
+    if (!mounted) return;
+
+    setState(() {
+      _elapsedDuration = Duration.zero;
+    });
   }
 
   double _distanceMeters(double lat1, double lng1, double lat2, double lng2) {
@@ -246,6 +262,7 @@ class _TimerScreenState extends State<TimerScreen>
   Future<void> _startLiveTracking() async {
     final services = AppServices.of(context);
     final currentUser = services.authService.currentUser;
+
     if (currentUser == null) return;
 
     _resetOutsideGeofenceWarning();
@@ -270,6 +287,7 @@ class _TimerScreenState extends State<TimerScreen>
       await _evaluateGeofenceForAutoStop(firstPosition);
     } catch (e) {
       debugPrint('Initial live location write failed: $e');
+
       if (mounted) {
         _showError('Could not start live location tracking. Please try again.');
       }
@@ -355,10 +373,12 @@ class _TimerScreenState extends State<TimerScreen>
 
     if (outsideDuration < _outsideGeofenceGracePeriod) {
       _outsideGeofenceTimer?.cancel();
+
       _outsideGeofenceTimer = Timer(_outsideGeofenceGracePeriod, () async {
         if (!mounted) return;
         await _confirmOutsideAndAutoStop();
       });
+
       return;
     }
 
@@ -436,6 +456,7 @@ class _TimerScreenState extends State<TimerScreen>
       }
 
       final startedAt = _outsideGeofenceStartedAt;
+
       if (startedAt == null) {
         timer.cancel();
         return;
@@ -485,9 +506,10 @@ class _TimerScreenState extends State<TimerScreen>
     _positionStreamSub = null;
   }
 
-  String _formatDuration(Duration d) {
+  String _formatDuration(Duration duration) {
     String pad(int n) => n.toString().padLeft(2, '0');
-    return '${pad(d.inHours)}:${pad(d.inMinutes.remainder(60))}:${pad(d.inSeconds.remainder(60))}';
+
+    return '${pad(duration.inHours)}:${pad(duration.inMinutes.remainder(60))}:${pad(duration.inSeconds.remainder(60))}';
   }
 
   Future<void> _handleStart() async {
@@ -503,33 +525,60 @@ class _TimerScreenState extends State<TimerScreen>
     await _handleClockInOut(AttendanceStatus.clockIn);
   }
 
-  Future<void> _handleStop() async {
-    if (!_isClockedIn) return;
+ Future<void> _handleStop() async {
+  if (!_isClockedIn) return;
 
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-      _statusMessage = 'Logging clock-out...';
-    });
+  setState(() {
+    _isLoading = true;
+    _errorMessage = null;
+    _statusMessage = 'Logging clock-out...';
+  });
+
+  try {
+    final services = AppServices.of(context);
+    final currentUser = services.authService.currentUser;
+
+    if (currentUser == null) {
+      throw Exception('User not authenticated.');
+    }
+
+    await _locationService?.ensurePermissions();
+
+    final position = await Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
+    );
+
+    final clockOutTime = DateTime.now();
+    final hasNetwork = await _hasNetworkConnection();
+
+    if (!hasNetwork) {
+      await services.offlineAttendanceQueueService.enqueueClockOut(
+        uid: currentUser.uid,
+        timestamp: clockOutTime,
+        latitude: position.latitude,
+        longitude: position.longitude,
+        accuracy: position.accuracy,
+        source: 'offline_manual_clock_out',
+      );
+
+      await _finishClockOutLocally(
+        'Clock-Out saved offline. It will automatically sync when internet is restored.',
+        refreshCompletedHours: false,
+      );
+
+      return;
+    }
 
     try {
-      final services = AppServices.of(context);
-      final currentUser = services.authService.currentUser;
-      if (currentUser == null) {
-        throw Exception('User not authenticated.');
-      }
-
-      await _locationService?.ensurePermissions();
-
-      final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-
-      await services.attendanceRepository.logAttendance(
-        uid: currentUser.uid,
-        status: AttendanceStatus.clockOut,
-        locationCoords: GeoPoint(position.latitude, position.longitude),
-      );
+      await services.attendanceRepository.addRawAttendance({
+        'uid': currentUser.uid,
+        'timestamp': Timestamp.fromDate(clockOutTime),
+        'status': AttendanceStatus.clockOut.value,
+        'location_coords': GeoPoint(position.latitude, position.longitude),
+        'isReplaced': false,
+        'source': 'mobile_timer_clock_out',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
 
       await services.liveLocationRepository.upsertLiveLocation(
         uid: currentUser.uid,
@@ -542,51 +591,86 @@ class _TimerScreenState extends State<TimerScreen>
         lastStatus: 'Clock-Out',
       );
 
-      await _stopLiveTracking();
-      await _refreshCompletedHours();
+      await _finishClockOutLocally(
+        'Clock-Out logged successfully.',
+        refreshCompletedHours: true,
+      );
+    } catch (syncError) {
+      debugPrint('Online clock-out failed. Saving offline: $syncError');
 
-      if (!mounted) return;
+      await services.offlineAttendanceQueueService.enqueueClockOut(
+        uid: currentUser.uid,
+        timestamp: clockOutTime,
+        latitude: position.latitude,
+        longitude: position.longitude,
+        accuracy: position.accuracy,
+        source: 'offline_manual_clock_out',
+      );
 
-      setState(() {
-        _isClockedIn = false;
-        _statusMessage = 'Clock-Out logged successfully.';
-        _isLoading = false;
-      });
-
-      _stopTimer();
-    } on AttendanceTransitionException catch (e) {
-      if (!mounted) return;
-      _showError(e.message);
-    } on app_location.LocationServiceDisabledException catch (e) {
-      if (!mounted) return;
-      _showError(e.toString());
-    } on app_location.LocationPermissionDeniedException catch (e) {
-      if (!mounted) return;
-      _showError(e.toString());
-    } catch (e) {
-      if (!mounted) return;
-      debugPrint('Clock-out failed: $e');
-      _showError('Clock-out failed. Please check your location and try again.');
+      await _finishClockOutLocally(
+        'Clock-Out saved offline. It will automatically sync when internet is restored.',
+        refreshCompletedHours: false,
+      );
     }
+  } on app_location.LocationServiceDisabledException catch (e) {
+    if (!mounted) return;
+    _showError(e.toString());
+  } on app_location.LocationPermissionDeniedException catch (e) {
+    if (!mounted) return;
+    _showError(e.toString());
+  } catch (e) {
+    if (!mounted) return;
+    debugPrint('Clock-out failed before offline save: $e');
+    _showError('Clock-out failed. Please check your location and try again.');
   }
+}
 
-  Future<void> _handleAutoStop(Position position) async {
-    if (!_isClockedIn || _isAutoStopping) return;
 
-    _isAutoStopping = true;
+
+Future<void> _handleAutoStop(Position position) async {
+  if (!_isClockedIn || _isAutoStopping) return;
+
+  _isAutoStopping = true;
+
+  try {
+    final services = AppServices.of(context);
+    final currentUser = services.authService.currentUser;
+
+    if (currentUser == null) {
+      throw Exception('User not authenticated.');
+    }
+
+    final clockOutTime = DateTime.now();
+    final hasNetwork = await _hasNetworkConnection();
+
+    if (!hasNetwork) {
+      await services.offlineAttendanceQueueService.enqueueClockOut(
+        uid: currentUser.uid,
+        timestamp: clockOutTime,
+        latitude: position.latitude,
+        longitude: position.longitude,
+        accuracy: position.accuracy,
+        source: 'offline_auto_clock_out',
+      );
+
+      await _finishClockOutLocally(
+        'Auto Clock-Out saved offline. It will automatically sync when internet is restored.',
+        refreshCompletedHours: false,
+      );
+
+      return;
+    }
 
     try {
-      final services = AppServices.of(context);
-      final currentUser = services.authService.currentUser;
-      if (currentUser == null) {
-        throw Exception('User not authenticated.');
-      }
-
-      await services.attendanceRepository.logAttendance(
-        uid: currentUser.uid,
-        status: AttendanceStatus.clockOut,
-        locationCoords: GeoPoint(position.latitude, position.longitude),
-      );
+      await services.attendanceRepository.addRawAttendance({
+        'uid': currentUser.uid,
+        'timestamp': Timestamp.fromDate(clockOutTime),
+        'status': AttendanceStatus.clockOut.value,
+        'location_coords': GeoPoint(position.latitude, position.longitude),
+        'isReplaced': false,
+        'source': 'mobile_timer_auto_clock_out',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
 
       await services.liveLocationRepository.upsertLiveLocation(
         uid: currentUser.uid,
@@ -599,32 +683,82 @@ class _TimerScreenState extends State<TimerScreen>
         lastStatus: 'Auto Clock-Out',
       );
 
-      await _stopLiveTracking();
-      await _refreshCompletedHours();
-
-      if (!mounted) return;
-
-      setState(() {
-        _isClockedIn = false;
-        _isLoading = false;
-        _errorMessage = null;
-        _statusMessage =
-            'You exited the allowed geofence. Timer stopped automatically.';
-      });
-
-      _stopTimer();
-    } on AttendanceTransitionException catch (e) {
-      if (!mounted) return;
-      _showError(e.message);
-    } catch (e) {
-      if (!mounted) return;
-      debugPrint('Automatic clock-out failed: $e');
-      _showError(
-        'Automatic clock-out failed. Please contact your supervisor if this continues.',
+      await _finishClockOutLocally(
+        'You exited the allowed geofence. Timer stopped automatically.',
+        refreshCompletedHours: true,
       );
-    } finally {
-      _isAutoStopping = false;
+    } catch (syncError) {
+      debugPrint('Online auto clock-out failed. Saving offline: $syncError');
+
+      await services.offlineAttendanceQueueService.enqueueClockOut(
+        uid: currentUser.uid,
+        timestamp: clockOutTime,
+        latitude: position.latitude,
+        longitude: position.longitude,
+        accuracy: position.accuracy,
+        source: 'offline_auto_clock_out',
+      );
+
+      try {
+        await services.liveLocationRepository.upsertLiveLocation(
+          uid: currentUser.uid,
+          fullName: currentUser.displayName ?? 'Intern',
+          email: currentUser.email ?? '',
+          latitude: position.latitude,
+          longitude: position.longitude,
+          accuracy: position.accuracy,
+          isClockedIn: false,
+          lastStatus: 'Auto Clock-Out Pending Sync',
+        );
+      } catch (liveLocationError) {
+        debugPrint(
+          'Live location offline auto clock-out update failed: $liveLocationError',
+        );
+      }
+
+      await _finishClockOutLocally(
+        'Auto Clock-Out saved offline. It will automatically sync when internet is restored.',
+        refreshCompletedHours: false,
+      );
     }
+  } catch (e) {
+    if (!mounted) return;
+
+    debugPrint('Automatic clock-out failed before offline save: $e');
+
+    _showError(
+      'Automatic clock-out failed. Please contact your supervisor if this continues.',
+    );
+  } finally {
+    _isAutoStopping = false;
+  }
+}
+
+
+  Future<void> _finishClockOutLocally(
+    String message, {
+    required bool refreshCompletedHours,
+  }) async {
+    await _stopLiveTracking();
+
+    if (refreshCompletedHours) {
+      try {
+        await _refreshCompletedHours();
+      } catch (e) {
+        debugPrint('Refresh completed hours failed after clock-out: $e');
+      }
+    }
+
+    if (!mounted) return;
+
+    setState(() {
+      _isClockedIn = false;
+      _isLoading = false;
+      _errorMessage = null;
+      _statusMessage = message;
+    });
+
+    _stopTimer();
   }
 
   Future<void> _handleClockInOut(AttendanceStatus status) async {
@@ -680,6 +814,7 @@ class _TimerScreenState extends State<TimerScreen>
       if (mounted) _showError(e.message);
     } catch (e) {
       debugPrint('Clock action failed: $e');
+
       if (mounted) {
         _showError(
           'Clock action failed. Please check your location and try again.',
@@ -690,6 +825,7 @@ class _TimerScreenState extends State<TimerScreen>
 
   void _showError(String message) {
     if (!mounted) return;
+
     setState(() {
       _errorMessage = message;
       _statusMessage = null;
@@ -725,7 +861,8 @@ class _TimerScreenState extends State<TimerScreen>
 
   @override
   Widget build(BuildContext context) {
-    final bool geofenceReady = _targetLat != null;
+    final bool geofenceReady =
+        _targetLat != null && _targetLng != null && _allowedRadius != null;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
@@ -777,6 +914,11 @@ class _TimerScreenState extends State<TimerScreen>
 
   Widget _buildTopBar() {
     final services = AppServices.of(context);
+    final displayName = services.authService.currentUser?.displayName;
+    final initial = displayName != null && displayName.trim().isNotEmpty
+        ? displayName[0]
+        : 'I';
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       color: const Color(0xFFF5F7FA),
@@ -791,8 +933,7 @@ class _TimerScreenState extends State<TimerScreen>
             ),
             child: Center(
               child: Text(
-                (services.authService.currentUser?.displayName ?? 'I')[0]
-                    .toUpperCase(),
+                initial.toUpperCase(),
                 style: GoogleFonts.dmSans(
                   color: Colors.white,
                   fontWeight: FontWeight.w700,
@@ -1372,6 +1513,7 @@ class _RingPainter extends CustomPainter {
     canvas.drawCircle(center, radius - 14, basePaint);
 
     final sweep = active ? (2 * math.pi * progress) : (2 * math.pi * 0.18);
+
     canvas.drawArc(
       Rect.fromCircle(center: center, radius: radius - 14),
       -math.pi / 2,

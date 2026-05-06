@@ -16,7 +16,7 @@ class AttendanceRepository {
   final FirestoreService _firestoreService;
 
   AttendanceRepository({FirestoreService? firestoreService})
-      : _firestoreService = firestoreService ?? FirestoreService();
+    : _firestoreService = firestoreService ?? FirestoreService();
 
   static const String _collection = 'attendance';
 
@@ -26,15 +26,19 @@ class AttendanceRepository {
         .orderBy('timestamp', descending: true)
         .snapshots()
         .map((snapshot) {
-      final Map<String, AttendanceModel> latestByUser = {};
+          final Map<String, AttendanceModel> latestByUser = {};
 
-      for (final doc in snapshot.docs) {
-        final model = AttendanceModel.fromMap(doc.data(), id: doc.id);
-        latestByUser.putIfAbsent(model.uid, () => model);
-      }
+          for (final doc in snapshot.docs) {
+            final model = AttendanceModel.fromMap(doc.data(), id: doc.id);
 
-      return latestByUser;
-    });
+            final isReplaced = doc.data()['isReplaced'] == true;
+            if (isReplaced) continue;
+
+            latestByUser.putIfAbsent(model.uid, () => model);
+          }
+
+          return latestByUser;
+        });
   }
 
   Stream<List<AttendanceModel>> streamAllAttendanceLogs() {
@@ -43,32 +47,44 @@ class AttendanceRepository {
         .orderBy('timestamp', descending: true)
         .snapshots()
         .map((snapshot) {
-      return snapshot.docs
-          .map((doc) => AttendanceModel.fromMap(doc.data(), id: doc.id))
-          .toList();
-    });
+          return snapshot.docs
+              .where((doc) => doc.data()['isReplaced'] != true)
+              .map((doc) => AttendanceModel.fromMap(doc.data(), id: doc.id))
+              .toList();
+        });
   }
 
- Future<String> logAttendance({
-  required String uid,
-  required AttendanceStatus status,
-  GeoPoint? locationCoords,
-}) async {
-  await _validateAttendanceTransition(uid: uid, nextStatus: status);
+  Future<String> logAttendance({
+    required String uid,
+    required AttendanceStatus status,
+    GeoPoint? locationCoords,
+  }) async {
+    await _validateAttendanceTransition(uid: uid, nextStatus: status);
 
-  final log = AttendanceModel(
-    uid: uid,
-    timestamp: DateTime.now(),
-    status: status,
-    locationCoords: locationCoords,
-  );
+    final log = AttendanceModel(
+      uid: uid,
+      timestamp: DateTime.now(),
+      status: status,
+      locationCoords: locationCoords,
+    );
 
-  return await _firestoreService.addDocument(
-    path: _collection,
-    data: log.toMap(),
-  );
-}
+    return _firestoreService.addDocument(
+      path: _collection,
+      data: {
+        ...log.toMap(),
+        'isReplaced': false,
+        'source': 'mobile_timer',
+        'createdAt': FieldValue.serverTimestamp(),
+      },
+    );
+  }
 
+  Future<String> addRawAttendance(Map<String, dynamic> data) async {
+    return _firestoreService.addDocument(
+      path: _collection,
+      data: {...data, 'isReplaced': data['isReplaced'] ?? false},
+    );
+  }
 
   Future<void> _validateAttendanceTransition({
     required String uid,
@@ -102,13 +118,21 @@ class AttendanceRepository {
         .collection(_collection)
         .where('uid', isEqualTo: uid)
         .orderBy('timestamp', descending: true)
-        .limit(1)
+        .limit(10)
         .get();
 
     if (snapshot.docs.isEmpty) return null;
 
-    final doc = snapshot.docs.first;
-    return AttendanceModel.fromMap(doc.data(), id: doc.id);
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      final isReplaced = data['isReplaced'] == true;
+
+      if (isReplaced) continue;
+
+      return AttendanceModel.fromMap(data, id: doc.id);
+    }
+
+    return null;
   }
 
   Future<List<AttendanceModel>> getAttendanceByStudent(String uid) async {
@@ -119,6 +143,7 @@ class AttendanceRepository {
         .get();
 
     return snapshot.docs
+        .where((doc) => doc.data()['isReplaced'] != true)
         .map((doc) => AttendanceModel.fromMap(doc.data(), id: doc.id))
         .toList();
   }
@@ -130,10 +155,11 @@ class AttendanceRepository {
         .orderBy('timestamp', descending: false)
         .snapshots()
         .map((snapshot) {
-      return snapshot.docs
-          .map((doc) => AttendanceModel.fromMap(doc.data(), id: doc.id))
-          .toList();
-    });
+          return snapshot.docs
+              .where((doc) => doc.data()['isReplaced'] != true)
+              .map((doc) => AttendanceModel.fromMap(doc.data(), id: doc.id))
+              .toList();
+        });
   }
 
   Future<List<AttendanceModel>> getTodayAttendance(String uid) async {
@@ -151,6 +177,7 @@ class AttendanceRepository {
         .get();
 
     return snapshot.docs
+        .where((doc) => doc.data()['isReplaced'] != true)
         .map((doc) => AttendanceModel.fromMap(doc.data(), id: doc.id))
         .toList();
   }
@@ -175,27 +202,28 @@ class AttendanceRepository {
         .orderBy('timestamp', descending: false)
         .snapshots()
         .map((snapshot) {
-      final logs = snapshot.docs
-          .map((doc) => AttendanceModel.fromMap(doc.data(), id: doc.id))
-          .where((log) => !log.timestamp.isBefore(startTimestamp))
-          .toList();
+          final logs = snapshot.docs
+              .where((doc) => doc.data()['isReplaced'] != true)
+              .map((doc) => AttendanceModel.fromMap(doc.data(), id: doc.id))
+              .where((log) => !log.timestamp.isBefore(startTimestamp))
+              .toList();
 
-      double totalHours = 0;
-      DateTime? lastClockIn;
+          double totalHours = 0;
+          DateTime? lastClockIn;
 
-      for (final log in logs) {
-        if (log.status == AttendanceStatus.clockIn) {
-          lastClockIn = log.timestamp;
-        } else if (log.status == AttendanceStatus.clockOut &&
-            lastClockIn != null) {
-          totalHours +=
-              log.timestamp.difference(lastClockIn).inMinutes / 60.0;
-          lastClockIn = null;
-        }
-      }
+          for (final log in logs) {
+            if (log.status == AttendanceStatus.clockIn) {
+              lastClockIn = log.timestamp;
+            } else if (log.status == AttendanceStatus.clockOut &&
+                lastClockIn != null) {
+              totalHours +=
+                  log.timestamp.difference(lastClockIn).inMinutes / 60.0;
+              lastClockIn = null;
+            }
+          }
 
-      return totalHours;
-    });
+          return totalHours;
+        });
   }
 
   Stream<AttendanceModel?> watchLatestLog(String uid) {
@@ -203,12 +231,22 @@ class AttendanceRepository {
         .collection(_collection)
         .where('uid', isEqualTo: uid)
         .orderBy('timestamp', descending: true)
+        .limit(10)
         .snapshots()
         .map((snapshot) {
-      if (snapshot.docs.isEmpty) return null;
-      final doc = snapshot.docs.first;
-      return AttendanceModel.fromMap(doc.data(), id: doc.id);
-    });
+          if (snapshot.docs.isEmpty) return null;
+
+          for (final doc in snapshot.docs) {
+            final data = doc.data();
+            final isReplaced = data['isReplaced'] == true;
+
+            if (isReplaced) continue;
+
+            return AttendanceModel.fromMap(data, id: doc.id);
+          }
+
+          return null;
+        });
   }
 
   Future<List<AttendanceModel>> getLogsForCurrentWeek(String uid) async {
@@ -226,6 +264,7 @@ class AttendanceRepository {
         .get();
 
     return snapshot.docs
+        .where((doc) => doc.data()['isReplaced'] != true)
         .map((doc) => AttendanceModel.fromMap(doc.data(), id: doc.id))
         .where((log) => !log.timestamp.isBefore(startOfWeek))
         .toList();

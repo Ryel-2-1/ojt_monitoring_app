@@ -5,22 +5,24 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 
 import 'models/user_model.dart';
 import 'repositories/attendance_repository.dart';
+import 'repositories/company_repository.dart';
+import 'repositories/enrollment_repository.dart';
 import 'repositories/live_location_repository.dart';
 import 'repositories/role_repository.dart';
 import 'repositories/student_repository.dart';
 import 'repositories/time_request_repository.dart';
 import 'repositories/user_repository.dart';
-import 'repositories/enrollment_repository.dart';
 import 'screens/admin_dashboard_layout.dart';
 import 'screens/intern_home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/web_login_screen.dart';
 import 'screens/web_unauthorized_screen.dart';
 import 'services/auth_service.dart';
-import 'repositories/company_repository.dart';
+import 'services/offline_attendance_queue_service.dart';
 
 const FirebaseOptions _webFirebaseOptions = FirebaseOptions(
   apiKey: 'AIzaSyByaNJZjhXfedXhs-71GjazPYhegb36bBM',
@@ -41,6 +43,8 @@ Future<void> main() async {
     await Firebase.initializeApp();
   }
 
+  await Hive.initFlutter();
+
   runApp(const OjtApp());
 }
 
@@ -54,6 +58,7 @@ class AppServices extends InheritedWidget {
   final TimeRequestRepository timeRequestRepository;
   final CompanyRepository companyRepository;
   final EnrollmentRepository enrollmentRepository;
+  final OfflineAttendanceQueueService offlineAttendanceQueueService;
 
   const AppServices({
     super.key,
@@ -66,6 +71,7 @@ class AppServices extends InheritedWidget {
     required this.timeRequestRepository,
     required this.companyRepository,
     required this.enrollmentRepository,
+    required this.offlineAttendanceQueueService,
     required super.child,
   });
 
@@ -79,30 +85,100 @@ class AppServices extends InheritedWidget {
   bool updateShouldNotify(AppServices oldWidget) => false;
 }
 
-class OjtApp extends StatelessWidget {
+class OjtApp extends StatefulWidget {
   const OjtApp({super.key});
 
   @override
+  State<OjtApp> createState() => _OjtAppState();
+}
+
+class _OjtAppState extends State<OjtApp> {
+  late final AuthService _authService;
+  late final StudentRepository _studentRepository;
+  late final AttendanceRepository _attendanceRepository;
+  late final UserRepository _userRepository;
+  late final RoleRepository _roleRepository;
+  late final LiveLocationRepository _liveLocationRepository;
+  late final TimeRequestRepository _timeRequestRepository;
+  late final CompanyRepository _companyRepository;
+  late final EnrollmentRepository _enrollmentRepository;
+  late final OfflineAttendanceQueueService _offlineAttendanceQueueService;
+
+  late final Future<void> _offlineQueueInitFuture;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _authService = AuthService();
+    _studentRepository = StudentRepository();
+    _attendanceRepository = AttendanceRepository();
+    _userRepository = UserRepository();
+    _roleRepository = RoleRepository();
+    _liveLocationRepository = LiveLocationRepository();
+    _timeRequestRepository = TimeRequestRepository();
+    _companyRepository = CompanyRepository();
+    _enrollmentRepository = EnrollmentRepository();
+
+    _offlineAttendanceQueueService = OfflineAttendanceQueueService(
+      attendanceRepository: _attendanceRepository,
+      liveLocationRepository: _liveLocationRepository,
+    );
+
+    _offlineQueueInitFuture = _offlineAttendanceQueueService.init();
+  }
+
+  @override
+  void dispose() {
+    _offlineAttendanceQueueService.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return AppServices(
-      authService: AuthService(),
-      studentRepository: StudentRepository(),
-      attendanceRepository: AttendanceRepository(),
-      userRepository: UserRepository(),
-      roleRepository: RoleRepository(),
-      liveLocationRepository: LiveLocationRepository(),
-      timeRequestRepository: TimeRequestRepository(),
-      companyRepository: CompanyRepository(),
-      enrollmentRepository: EnrollmentRepository(),
-      child: MaterialApp(
-        title: 'GeoAI OJT Monitoring System',
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1565C0)),
-          useMaterial3: true,
-        ),
-        home: const AuthGate(),
-      ),
+    return FutureBuilder<void>(
+      future: _offlineQueueInitFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return MaterialApp(
+            title: 'GeoAI OJT Monitoring System',
+            debugShowCheckedModeBanner: false,
+            theme: ThemeData(
+              colorScheme: ColorScheme.fromSeed(
+                seedColor: const Color(0xFF1565C0),
+              ),
+              useMaterial3: true,
+            ),
+            home: const _LoadingScreen(
+              message: 'Preparing offline attendance storage...',
+            ),
+          );
+        }
+
+        return AppServices(
+          authService: _authService,
+          studentRepository: _studentRepository,
+          attendanceRepository: _attendanceRepository,
+          userRepository: _userRepository,
+          roleRepository: _roleRepository,
+          liveLocationRepository: _liveLocationRepository,
+          timeRequestRepository: _timeRequestRepository,
+          companyRepository: _companyRepository,
+          enrollmentRepository: _enrollmentRepository,
+          offlineAttendanceQueueService: _offlineAttendanceQueueService,
+          child: MaterialApp(
+            title: 'GeoAI OJT Monitoring System',
+            debugShowCheckedModeBanner: false,
+            theme: ThemeData(
+              colorScheme: ColorScheme.fromSeed(
+                seedColor: const Color(0xFF1565C0),
+              ),
+              useMaterial3: true,
+            ),
+            home: const AuthGate(),
+          ),
+        );
+      },
     );
   }
 }
