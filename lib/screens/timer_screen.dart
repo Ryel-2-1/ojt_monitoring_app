@@ -57,6 +57,8 @@ class _TimerScreenState extends State<TimerScreen>
 
   static const double _maxReliableAccuracyMeters = 50.0;
   static const Duration _outsideGeofenceGracePeriod = Duration(seconds: 45);
+  static const Duration _onlineClockOutWriteTimeout = Duration(seconds: 8);
+  static const Duration _liveLocationWriteTimeout = Duration(seconds: 5);
 
   int? _requiredOjtHours;
   double _completedOjtHours = 0;
@@ -149,12 +151,25 @@ class _TimerScreenState extends State<TimerScreen>
       final latestLog = await services.attendanceRepository.getLatestLog(uid);
 
       bool alreadyClockedIn = false;
+      String? restoredStatusMessage;
 
       if (latestLog?.status == AttendanceStatus.clockIn) {
-        alreadyClockedIn = true;
-        _clockInTime = latestLog!.timestamp;
-        _startTimer(_clockInTime!);
-        await _startLiveTracking();
+        final hasPendingClockOut = await _hasPendingClockOutForUser(
+          uid,
+          after: latestLog!.timestamp,
+        );
+
+        if (hasPendingClockOut) {
+          alreadyClockedIn = false;
+          _stopTimer(updateUi: false);
+          restoredStatusMessage =
+              'Clock-Out is saved offline and waiting to sync. You are not currently on session.';
+        } else {
+          alreadyClockedIn = true;
+          _clockInTime = latestLog.timestamp;
+          _startTimer(_clockInTime!);
+          await _startLiveTracking();
+        }
       }
 
       if (!mounted) return;
@@ -163,6 +178,7 @@ class _TimerScreenState extends State<TimerScreen>
         _isClockedIn = alreadyClockedIn;
         _isLoading = false;
         _errorMessage = null;
+        _statusMessage = restoredStatusMessage;
       });
     } catch (e) {
       debugPrint('Timer initialization failed: $e');
@@ -209,10 +225,32 @@ class _TimerScreenState extends State<TimerScreen>
     return totalHours;
   }
 
-Future<bool> _hasNetworkConnection() async {
-  final results = await Connectivity().checkConnectivity();
-  return results.any((result) => result != ConnectivityResult.none);
-}
+  Future<bool> _hasNetworkConnection() async {
+    final results = await Connectivity().checkConnectivity();
+    return results.any((result) => result != ConnectivityResult.none);
+  }
+
+  Future<bool> _hasPendingClockOutForUser(String uid, {DateTime? after}) async {
+    try {
+      final pendingActions = await AppServices.of(
+        context,
+      ).offlineAttendanceQueueService.getPendingActions();
+
+      return pendingActions.any((action) {
+        if (action.uid != uid || action.status != AttendanceStatus.clockOut) {
+          return false;
+        }
+
+        if (after == null) return true;
+
+        return action.timestamp.isAfter(after) ||
+            action.timestamp.isAtSameMomentAs(after);
+      });
+    } catch (e) {
+      debugPrint('Could not inspect offline clock-out queue: $e');
+      return false;
+    }
+  }
 
   Future<void> _refreshCompletedHours() async {
     final services = AppServices.of(context);
@@ -234,25 +272,33 @@ Future<bool> _hasNetworkConnection() async {
   void _startTimer(DateTime startTime) {
     _liveTimer?.cancel();
 
+    void updateElapsed() {
+      final elapsed = DateTime.now().difference(startTime);
+      _elapsedDuration = elapsed.isNegative ? Duration.zero : elapsed;
+    }
+
+    if (mounted) {
+      setState(updateElapsed);
+    } else {
+      updateElapsed();
+    }
+
     _liveTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
 
-      setState(() {
-        _elapsedDuration = DateTime.now().difference(startTime);
-      });
+      setState(updateElapsed);
     });
   }
 
-  void _stopTimer() {
+  void _stopTimer({bool updateUi = true}) {
     _liveTimer?.cancel();
     _liveTimer = null;
     _clockInTime = null;
+    _elapsedDuration = Duration.zero;
 
-    if (!mounted) return;
+    if (!mounted || !updateUi) return;
 
-    setState(() {
-      _elapsedDuration = Duration.zero;
-    });
+    setState(() {});
   }
 
   double _distanceMeters(double lat1, double lng1, double lat2, double lng2) {
@@ -522,223 +568,240 @@ Future<bool> _hasNetworkConnection() async {
       return;
     }
 
-    await _handleClockInOut(AttendanceStatus.clockIn);
-  }
-
- Future<void> _handleStop() async {
-  if (!_isClockedIn) return;
-
-  setState(() {
-    _isLoading = true;
-    _errorMessage = null;
-    _statusMessage = 'Logging clock-out...';
-  });
-
-  try {
-    final services = AppServices.of(context);
-    final currentUser = services.authService.currentUser;
-
-    if (currentUser == null) {
-      throw Exception('User not authenticated.');
-    }
-
-    await _locationService?.ensurePermissions();
-
-    final position = await Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.high,
-    );
-
-    final clockOutTime = DateTime.now();
     final hasNetwork = await _hasNetworkConnection();
-
     if (!hasNetwork) {
-      await services.offlineAttendanceQueueService.enqueueClockOut(
-        uid: currentUser.uid,
-        timestamp: clockOutTime,
-        latitude: position.latitude,
-        longitude: position.longitude,
-        accuracy: position.accuracy,
-        source: 'offline_manual_clock_out',
+      _showError(
+        'Clock-In requires an internet connection and your live location inside the assigned geofence. Please reconnect and try again while you are at your partner company.',
       );
-
-      await _finishClockOutLocally(
-        'Clock-Out saved offline. It will automatically sync when internet is restored.',
-        refreshCompletedHours: false,
-      );
-
       return;
     }
 
-    try {
-      await services.attendanceRepository.addRawAttendance({
-        'uid': currentUser.uid,
-        'timestamp': Timestamp.fromDate(clockOutTime),
-        'status': AttendanceStatus.clockOut.value,
-        'location_coords': GeoPoint(position.latitude, position.longitude),
-        'isReplaced': false,
-        'source': 'mobile_timer_clock_out',
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+    await _handleClockInOut(AttendanceStatus.clockIn);
+  }
 
-      await services.liveLocationRepository.upsertLiveLocation(
-        uid: currentUser.uid,
-        fullName: currentUser.displayName ?? 'Intern',
-        email: currentUser.email ?? '',
-        latitude: position.latitude,
-        longitude: position.longitude,
-        accuracy: position.accuracy,
-        isClockedIn: false,
-        lastStatus: 'Clock-Out',
+  Future<void> _handleStop() async {
+    if (!_isClockedIn) return;
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+      _statusMessage = 'Logging clock-out...';
+    });
+
+    try {
+      final services = AppServices.of(context);
+      final currentUser = services.authService.currentUser;
+
+      if (currentUser == null) {
+        throw Exception('User not authenticated.');
+      }
+
+      await _locationService?.ensurePermissions();
+
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
       );
+
+      final clockOutTime = DateTime.now();
+      final hasNetwork = await _hasNetworkConnection();
+
+      if (!hasNetwork) {
+        await services.offlineAttendanceQueueService.enqueueClockOut(
+          uid: currentUser.uid,
+          timestamp: clockOutTime,
+          latitude: position.latitude,
+          longitude: position.longitude,
+          accuracy: position.accuracy,
+          source: 'offline_manual_clock_out',
+        );
+
+        await _finishClockOutLocally(
+          'Clock-Out saved offline. It will automatically sync when internet is restored.',
+          refreshCompletedHours: false,
+        );
+
+        return;
+      }
+
+      try {
+        await services.attendanceRepository
+            .addRawAttendance({
+              'uid': currentUser.uid,
+              'timestamp': Timestamp.fromDate(clockOutTime),
+              'status': AttendanceStatus.clockOut.value,
+              'location_coords': GeoPoint(
+                position.latitude,
+                position.longitude,
+              ),
+              'isReplaced': false,
+              'source': 'mobile_timer_clock_out',
+              'createdAt': FieldValue.serverTimestamp(),
+            })
+            .timeout(_onlineClockOutWriteTimeout);
+      } catch (syncError) {
+        debugPrint('Online clock-out failed. Saving offline: $syncError');
+
+        await services.offlineAttendanceQueueService.enqueueClockOut(
+          uid: currentUser.uid,
+          timestamp: clockOutTime,
+          latitude: position.latitude,
+          longitude: position.longitude,
+          accuracy: position.accuracy,
+          source: 'offline_manual_clock_out',
+        );
+
+        await _finishClockOutLocally(
+          'Clock-Out saved offline. It will automatically sync when internet is restored.',
+          refreshCompletedHours: false,
+        );
+
+        return;
+      }
+
+      try {
+        await services.liveLocationRepository
+            .upsertLiveLocation(
+              uid: currentUser.uid,
+              fullName: currentUser.displayName ?? 'Intern',
+              email: currentUser.email ?? '',
+              latitude: position.latitude,
+              longitude: position.longitude,
+              accuracy: position.accuracy,
+              isClockedIn: false,
+              lastStatus: 'Clock-Out',
+            )
+            .timeout(_liveLocationWriteTimeout);
+      } catch (liveLocationError) {
+        debugPrint('Live location clock-out update failed: $liveLocationError');
+      }
 
       await _finishClockOutLocally(
         'Clock-Out logged successfully.',
         refreshCompletedHours: true,
       );
-    } catch (syncError) {
-      debugPrint('Online clock-out failed. Saving offline: $syncError');
-
-      await services.offlineAttendanceQueueService.enqueueClockOut(
-        uid: currentUser.uid,
-        timestamp: clockOutTime,
-        latitude: position.latitude,
-        longitude: position.longitude,
-        accuracy: position.accuracy,
-        source: 'offline_manual_clock_out',
-      );
-
-      await _finishClockOutLocally(
-        'Clock-Out saved offline. It will automatically sync when internet is restored.',
-        refreshCompletedHours: false,
-      );
+    } on app_location.LocationServiceDisabledException catch (e) {
+      if (!mounted) return;
+      _showError(e.toString());
+    } on app_location.LocationPermissionDeniedException catch (e) {
+      if (!mounted) return;
+      _showError(e.toString());
+    } catch (e) {
+      if (!mounted) return;
+      debugPrint('Clock-out failed before offline save: $e');
+      _showError('Clock-out failed. Please check your location and try again.');
     }
-  } on app_location.LocationServiceDisabledException catch (e) {
-    if (!mounted) return;
-    _showError(e.toString());
-  } on app_location.LocationPermissionDeniedException catch (e) {
-    if (!mounted) return;
-    _showError(e.toString());
-  } catch (e) {
-    if (!mounted) return;
-    debugPrint('Clock-out failed before offline save: $e');
-    _showError('Clock-out failed. Please check your location and try again.');
   }
-}
 
+  Future<void> _handleAutoStop(Position position) async {
+    if (!_isClockedIn || _isAutoStopping) return;
 
-
-Future<void> _handleAutoStop(Position position) async {
-  if (!_isClockedIn || _isAutoStopping) return;
-
-  _isAutoStopping = true;
-
-  try {
-    final services = AppServices.of(context);
-    final currentUser = services.authService.currentUser;
-
-    if (currentUser == null) {
-      throw Exception('User not authenticated.');
-    }
-
-    final clockOutTime = DateTime.now();
-    final hasNetwork = await _hasNetworkConnection();
-
-    if (!hasNetwork) {
-      await services.offlineAttendanceQueueService.enqueueClockOut(
-        uid: currentUser.uid,
-        timestamp: clockOutTime,
-        latitude: position.latitude,
-        longitude: position.longitude,
-        accuracy: position.accuracy,
-        source: 'offline_auto_clock_out',
-      );
-
-      await _finishClockOutLocally(
-        'Auto Clock-Out saved offline. It will automatically sync when internet is restored.',
-        refreshCompletedHours: false,
-      );
-
-      return;
-    }
+    _isAutoStopping = true;
 
     try {
-      await services.attendanceRepository.addRawAttendance({
-        'uid': currentUser.uid,
-        'timestamp': Timestamp.fromDate(clockOutTime),
-        'status': AttendanceStatus.clockOut.value,
-        'location_coords': GeoPoint(position.latitude, position.longitude),
-        'isReplaced': false,
-        'source': 'mobile_timer_auto_clock_out',
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+      final services = AppServices.of(context);
+      final currentUser = services.authService.currentUser;
 
-      await services.liveLocationRepository.upsertLiveLocation(
-        uid: currentUser.uid,
-        fullName: currentUser.displayName ?? 'Intern',
-        email: currentUser.email ?? '',
-        latitude: position.latitude,
-        longitude: position.longitude,
-        accuracy: position.accuracy,
-        isClockedIn: false,
-        lastStatus: 'Auto Clock-Out',
-      );
+      if (currentUser == null) {
+        throw Exception('User not authenticated.');
+      }
+
+      final clockOutTime = DateTime.now();
+      final hasNetwork = await _hasNetworkConnection();
+
+      if (!hasNetwork) {
+        await services.offlineAttendanceQueueService.enqueueClockOut(
+          uid: currentUser.uid,
+          timestamp: clockOutTime,
+          latitude: position.latitude,
+          longitude: position.longitude,
+          accuracy: position.accuracy,
+          source: 'offline_auto_clock_out',
+        );
+
+        await _finishClockOutLocally(
+          'Auto Clock-Out saved offline. It will automatically sync when internet is restored.',
+          refreshCompletedHours: false,
+        );
+
+        return;
+      }
+
+      try {
+        await services.attendanceRepository
+            .addRawAttendance({
+              'uid': currentUser.uid,
+              'timestamp': Timestamp.fromDate(clockOutTime),
+              'status': AttendanceStatus.clockOut.value,
+              'location_coords': GeoPoint(
+                position.latitude,
+                position.longitude,
+              ),
+              'isReplaced': false,
+              'source': 'mobile_timer_auto_clock_out',
+              'createdAt': FieldValue.serverTimestamp(),
+            })
+            .timeout(_onlineClockOutWriteTimeout);
+      } catch (syncError) {
+        debugPrint('Online auto clock-out failed. Saving offline: $syncError');
+
+        await services.offlineAttendanceQueueService.enqueueClockOut(
+          uid: currentUser.uid,
+          timestamp: clockOutTime,
+          latitude: position.latitude,
+          longitude: position.longitude,
+          accuracy: position.accuracy,
+          source: 'offline_auto_clock_out',
+        );
+
+        await _finishClockOutLocally(
+          'Auto Clock-Out saved offline. It will automatically sync when internet is restored.',
+          refreshCompletedHours: false,
+        );
+
+        return;
+      }
+
+      try {
+        await services.liveLocationRepository
+            .upsertLiveLocation(
+              uid: currentUser.uid,
+              fullName: currentUser.displayName ?? 'Intern',
+              email: currentUser.email ?? '',
+              latitude: position.latitude,
+              longitude: position.longitude,
+              accuracy: position.accuracy,
+              isClockedIn: false,
+              lastStatus: 'Auto Clock-Out',
+            )
+            .timeout(_liveLocationWriteTimeout);
+      } catch (liveLocationError) {
+        debugPrint(
+          'Live location auto clock-out update failed: $liveLocationError',
+        );
+      }
 
       await _finishClockOutLocally(
         'You exited the allowed geofence. Timer stopped automatically.',
         refreshCompletedHours: true,
       );
-    } catch (syncError) {
-      debugPrint('Online auto clock-out failed. Saving offline: $syncError');
+    } catch (e) {
+      if (!mounted) return;
 
-      await services.offlineAttendanceQueueService.enqueueClockOut(
-        uid: currentUser.uid,
-        timestamp: clockOutTime,
-        latitude: position.latitude,
-        longitude: position.longitude,
-        accuracy: position.accuracy,
-        source: 'offline_auto_clock_out',
+      debugPrint('Automatic clock-out failed before offline save: $e');
+
+      _showError(
+        'Automatic clock-out failed. Please contact your supervisor if this continues.',
       );
-
-      try {
-        await services.liveLocationRepository.upsertLiveLocation(
-          uid: currentUser.uid,
-          fullName: currentUser.displayName ?? 'Intern',
-          email: currentUser.email ?? '',
-          latitude: position.latitude,
-          longitude: position.longitude,
-          accuracy: position.accuracy,
-          isClockedIn: false,
-          lastStatus: 'Auto Clock-Out Pending Sync',
-        );
-      } catch (liveLocationError) {
-        debugPrint(
-          'Live location offline auto clock-out update failed: $liveLocationError',
-        );
-      }
-
-      await _finishClockOutLocally(
-        'Auto Clock-Out saved offline. It will automatically sync when internet is restored.',
-        refreshCompletedHours: false,
-      );
+    } finally {
+      _isAutoStopping = false;
     }
-  } catch (e) {
-    if (!mounted) return;
-
-    debugPrint('Automatic clock-out failed before offline save: $e');
-
-    _showError(
-      'Automatic clock-out failed. Please contact your supervisor if this continues.',
-    );
-  } finally {
-    _isAutoStopping = false;
   }
-}
-
 
   Future<void> _finishClockOutLocally(
     String message, {
     required bool refreshCompletedHours,
   }) async {
+    _stopTimer(updateUi: false);
     await _stopLiveTracking();
 
     if (refreshCompletedHours) {
@@ -756,9 +819,8 @@ Future<void> _handleAutoStop(Position position) async {
       _isLoading = false;
       _errorMessage = null;
       _statusMessage = message;
+      _elapsedDuration = Duration.zero;
     });
-
-    _stopTimer();
   }
 
   Future<void> _handleClockInOut(AttendanceStatus status) async {
@@ -811,7 +873,16 @@ Future<void> _handleAutoStop(Position position) async {
     } on app_location.LocationPermissionDeniedException catch (e) {
       if (mounted) _showError(e.toString());
     } on AttendanceTransitionException catch (e) {
-      if (mounted) _showError(e.message);
+      if (!mounted) return;
+
+      if (status == AttendanceStatus.clockIn &&
+          e.message.toLowerCase().contains('already clocked in')) {
+        _showError(
+          'You may have an unfinished attendance session. Please connect to the internet so we can verify your latest record before starting a new Clock-In.',
+        );
+      } else {
+        _showError(e.message);
+      }
     } catch (e) {
       debugPrint('Clock action failed: $e');
 

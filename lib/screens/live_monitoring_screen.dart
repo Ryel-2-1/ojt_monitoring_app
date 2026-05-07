@@ -1,5 +1,6 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:latlong2/latlong.dart';
@@ -20,11 +21,11 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
   final TextEditingController _searchController = TextEditingController();
   final MapController _mapController = MapController();
 
-  String _selectedFilter = 'All Partner Companies';
+  String _selectedFilter = 'All Assigned Interns';
   String _searchQuery = '';
 
   final List<String> _filters = const [
-    'All Partner Companies',
+    'All Assigned Interns',
     'Assigned Geofence Only',
     'Active Sessions Only',
   ];
@@ -39,9 +40,11 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final userRepo = AppServices.of(context).userRepository;
-    final attendanceRepo = AppServices.of(context).attendanceRepository;
-    final liveLocationRepo = AppServices.of(context).liveLocationRepository;
+    final services = AppServices.of(context);
+    final userRepo = services.userRepository;
+    final attendanceRepo = services.attendanceRepository;
+    final liveLocationRepo = services.liveLocationRepository;
+    final supervisorUid = services.authService.currentUser?.uid;
 
     return Padding(
       padding: const EdgeInsets.all(28),
@@ -52,25 +55,22 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
           const SizedBox(height: 18),
           Expanded(
             child: StreamBuilder<List<UserModel>>(
-              stream: userRepo.streamInternUsers(),
+              stream: userRepo.streamInternUsers(
+                supervisorUid: supervisorUid,
+                includeUnassigned: false,
+              ),
               builder: (context, userSnapshot) {
                 if (userSnapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
                 }
 
                 if (userSnapshot.hasError) {
-                  return Center(
-                    child: Text(
-                      'Failed to load interns. Please check permissions and try again.',
-                      style: GoogleFonts.plusJakartaSans(
-                        color: Colors.red[700],
-                        fontSize: 13,
-                      ),
-                    ),
+                  return _buildErrorState(
+                    'Failed to load interns. Please check permissions and try again.',
                   );
                 }
 
-                final users = userSnapshot.data ?? [];
+                final assignedUsers = userSnapshot.data ?? [];
 
                 return StreamBuilder<Map<String, AttendanceModel>>(
                   stream: attendanceRepo.streamLatestLogsByUser(),
@@ -81,40 +81,19 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                     }
 
                     if (logSnapshot.hasError) {
-                      return Center(
-                        child: Text(
-                          'Failed to load activity. Please check permissions and try again.',
-                          style: GoogleFonts.plusJakartaSans(
-                            color: Colors.red[700],
-                            fontSize: 13,
-                          ),
-                        ),
+                      return _buildErrorState(
+                        'Failed to load attendance activity. Please check permissions and try again.',
                       );
                     }
 
                     final latestLogs = logSnapshot.data ?? {};
-
-                    final activeUsers = users.where((user) {
+                    final visibleUsers = _filterUsers(
+                      assignedUsers,
+                      latestLogs,
+                    );
+                    final activeUsers = visibleUsers.where((user) {
                       final latest = latestLogs[user.uid];
                       return latest?.status == AttendanceStatus.clockIn;
-                    }).toList();
-
-                    final filteredActiveUsers = activeUsers.where((user) {
-                      final q = _searchQuery.trim().toLowerCase();
-
-                      final hasGeofence = user.assignedLatitude != null &&
-                          user.assignedLongitude != null &&
-                          user.allowedRadius != null;
-
-                      if (_selectedFilter == 'Assigned Geofence Only' &&
-                          !hasGeofence) {
-                        return false;
-                      }
-
-                      if (q.isEmpty) return true;
-
-                      return user.fullName.toLowerCase().contains(q) ||
-                          user.email.toLowerCase().contains(q);
                     }).toList();
 
                     return StreamBuilder<List<LiveLocationModel>>(
@@ -128,111 +107,34 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                         }
 
                         if (locationSnapshot.hasError) {
-                          return Center(
-                            child: Text(
-                              'Failed to load live locations. Please check permissions and try again.',
-                              textAlign: TextAlign.center,
-                              style: GoogleFonts.plusJakartaSans(
-                                fontSize: 13,
-                                color: Colors.red[700],
-                              ),
-                            ),
+                          return _buildErrorState(
+                            'Failed to load live locations. Please check permissions and try again.',
                           );
                         }
 
                         final allLocations = locationSnapshot.data ?? [];
+                        final activeUids = activeUsers
+                            .map((u) => u.uid)
+                            .toSet();
 
-                        final activeUids =
-                            filteredActiveUsers.map((u) => u.uid).toSet();
-
-                        final filteredLocations = allLocations.where((location) {
-                          if (!activeUids.contains(location.uid)) {
-                            return false;
-                          }
+                        final filteredLocations = allLocations.where((
+                          location,
+                        ) {
+                          if (!activeUids.contains(location.uid)) return false;
 
                           final q = _searchQuery.trim().toLowerCase();
                           if (q.isEmpty) return true;
 
-                          return location.fullName
-                                  .toLowerCase()
-                                  .contains(q) ||
+                          return location.fullName.toLowerCase().contains(q) ||
                               location.email.toLowerCase().contains(q);
                         }).toList();
 
-                        return Container(
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF7F9FC),
-                            borderRadius: BorderRadius.circular(18),
-                            border: Border.all(
-                              color: const Color(0xFFE7ECF3),
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                flex: 5,
-                                child: Padding(
-                                  padding: const EdgeInsets.fromLTRB(
-                                    20,
-                                    18,
-                                    14,
-                                    18,
-                                  ),
-                                  child: Column(
-                                    children: [
-                                      _buildMapHeaderCard(
-                                        filteredLocations.length,
-                                      ),
-                                      const SizedBox(height: 16),
-                                      Expanded(
-                                        child: _buildLiveMapPanel(
-                                          filteredLocations: filteredLocations,
-                                          activeUsers: filteredActiveUsers,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                              Container(
-                                width: 1,
-                                color: const Color(0xFFE7ECF3),
-                              ),
-                              Expanded(
-                                flex: 3,
-                                child: Padding(
-                                  padding: const EdgeInsets.fromLTRB(
-                                    16,
-                                    18,
-                                    20,
-                                    18,
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      _buildActiveSessionsHeader(
-                                        filteredActiveUsers.length,
-                                      ),
-                                      const SizedBox(height: 14),
-                                      Expanded(
-                                        child: _buildActiveSessionsList(
-                                          filteredActiveUsers,
-                                          latestLogs,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 16),
-                                      _buildCoverageCard(
-                                        activeCount:
-                                            filteredActiveUsers.length,
-                                        totalUsers: users.length,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
+                        return _buildMonitoringBody(
+                          totalAssigned: assignedUsers.length,
+                          visibleUsers: visibleUsers,
+                          activeUsers: activeUsers,
+                          filteredLocations: filteredLocations,
+                          latestLogs: latestLogs,
                         );
                       },
                     );
@@ -246,27 +148,118 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
     );
   }
 
+  Widget _buildMonitoringBody({
+    required int totalAssigned,
+    required List<UserModel> visibleUsers,
+    required List<UserModel> activeUsers,
+    required List<LiveLocationModel> filteredLocations,
+    required Map<String, AttendanceModel> latestLogs,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final useStackedLayout = constraints.maxWidth < 1050;
+
+        final mapSection = _buildMapSection(
+          filteredLocations: filteredLocations,
+          activeUsers: activeUsers,
+        );
+
+        final sessionSection = _buildSessionSection(
+          totalAssigned: totalAssigned,
+          visibleUsers: visibleUsers,
+          activeUsers: activeUsers,
+          latestLogs: latestLogs,
+        );
+
+        return Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFFF7F9FC),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: const Color(0xFFE7ECF3)),
+          ),
+          child: useStackedLayout
+              ? Column(
+                  children: [
+                    Expanded(flex: 3, child: mapSection),
+                    Container(height: 1, color: const Color(0xFFE7ECF3)),
+                    Expanded(flex: 2, child: sessionSection),
+                  ],
+                )
+              : Row(
+                  children: [
+                    Expanded(flex: 5, child: mapSection),
+                    Container(width: 1, color: const Color(0xFFE7ECF3)),
+                    SizedBox(width: 390, child: sessionSection),
+                  ],
+                ),
+        );
+      },
+    );
+  }
+
+  Widget _buildMapSection({
+    required List<LiveLocationModel> filteredLocations,
+    required List<UserModel> activeUsers,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 18, 16, 18),
+      child: Column(
+        children: [
+          _buildMapHeaderCard(filteredLocations.length),
+          const SizedBox(height: 16),
+          Expanded(
+            child: _buildLiveMapPanel(
+              filteredLocations: filteredLocations,
+              activeUsers: activeUsers,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSessionSection({
+    required int totalAssigned,
+    required List<UserModel> visibleUsers,
+    required List<UserModel> activeUsers,
+    required Map<String, AttendanceModel> latestLogs,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 18, 20, 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildActiveSessionsHeader(activeUsers.length),
+          const SizedBox(height: 14),
+          Expanded(child: _buildActiveSessionsList(activeUsers, latestLogs)),
+          const SizedBox(height: 16),
+          _buildCoverageCard(
+            activeCount: activeUsers.length,
+            visibleCount: visibleUsers.length,
+            totalAssigned: totalAssigned,
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildTopToolbar() {
-    return Row(
-      children: [
-        SizedBox(
-          width: 300,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final narrow = constraints.maxWidth < 850;
+
+        final searchField = SizedBox(
+          width: narrow ? double.infinity : 360,
           child: TextField(
             controller: _searchController,
-            onChanged: (value) {
-              setState(() => _searchQuery = value);
-            },
+            onChanged: (value) => setState(() => _searchQuery = value),
             decoration: InputDecoration(
-              hintText: 'Search students by name...',
+              hintText: 'Search students by name, email, or company...',
               hintStyle: GoogleFonts.plusJakartaSans(
                 fontSize: 13,
                 color: Colors.grey[500],
               ),
-              prefixIcon: Icon(
-                Icons.search,
-                size: 20,
-                color: Colors.grey[500],
-              ),
+              prefixIcon: Icon(Icons.search, size: 20, color: Colors.grey[500]),
               filled: true,
               fillColor: Colors.white,
               contentPadding: const EdgeInsets.symmetric(vertical: 0),
@@ -280,62 +273,150 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
               ),
             ),
           ),
-        ),
-        const SizedBox(width: 20),
-        Text(
-          'FILTER:',
-          style: GoogleFonts.plusJakartaSans(
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            color: Colors.grey[500],
-            letterSpacing: 0.8,
+        );
+
+        final filter = Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0xFFE7ECF3)),
           ),
-        ),
-        const SizedBox(width: 10),
-        DropdownButtonHideUnderline(
-          child: DropdownButton<String>(
-            value: _selectedFilter,
-            borderRadius: BorderRadius.circular(12),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: _selectedFilter,
+              borderRadius: BorderRadius.circular(12),
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF0A2351),
+              ),
+              icon: const Icon(Icons.keyboard_arrow_down_rounded),
+              items: _filters.map((item) {
+                return DropdownMenuItem<String>(value: item, child: Text(item));
+              }).toList(),
+              onChanged: (value) {
+                if (value != null) setState(() => _selectedFilter = value);
+              },
+            ),
+          ),
+        );
+
+        if (narrow) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              searchField,
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(child: filter),
+                  const SizedBox(width: 12),
+                  _buildLiveViewPill(),
+                ],
+              ),
+            ],
+          );
+        }
+
+        return Row(
+          children: [
+            searchField,
+            const SizedBox(width: 16),
+            Text(
+              'FILTER:',
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: Colors.grey[500],
+                letterSpacing: 0.8,
+              ),
+            ),
+            const SizedBox(width: 10),
+            filter,
+            const Spacer(),
+            _buildLiveViewPill(),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildLiveViewPill() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEAF2FF),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: const BoxDecoration(
+              color: Color(0xFF14A44D),
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            'Live View',
             style: GoogleFonts.plusJakartaSans(
               fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: const Color(0xFF0A2351),
+              fontWeight: FontWeight.w700,
+              color: const Color(0xFF0D4DB3),
             ),
-            icon: const Icon(Icons.keyboard_arrow_down_rounded),
-            items: _filters.map((item) {
-              return DropdownMenuItem<String>(
-                value: item,
-                child: Text(item),
-              );
-            }).toList(),
-            onChanged: (value) {
-              if (value != null) {
-                setState(() => _selectedFilter = value);
-              }
-            },
           ),
+        ],
+      ),
+    );
+  }
+
+  List<UserModel> _filterUsers(
+    List<UserModel> users,
+    Map<String, AttendanceModel> latestLogs,
+  ) {
+    final q = _searchQuery.trim().toLowerCase();
+
+    return users.where((user) {
+      final latest = latestLogs[user.uid];
+      final isActive = latest?.status == AttendanceStatus.clockIn;
+      final hasGeofence =
+          user.assignedLatitude != null &&
+          user.assignedLongitude != null &&
+          user.allowedRadius != null &&
+          user.allowedRadius! > 0;
+
+      if (_selectedFilter == 'Assigned Geofence Only' && !hasGeofence) {
+        return false;
+      }
+
+      if (_selectedFilter == 'Active Sessions Only' && !isActive) {
+        return false;
+      }
+
+      if (q.isEmpty) return true;
+
+      return user.fullName.toLowerCase().contains(q) ||
+          user.email.toLowerCase().contains(q) ||
+          (user.companyName ?? '').toLowerCase().contains(q) ||
+          (user.companyAddress ?? '').toLowerCase().contains(q);
+    }).toList();
+  }
+
+  Widget _buildErrorState(String message) {
+    return Center(
+      child: Text(
+        message,
+        textAlign: TextAlign.center,
+        style: GoogleFonts.plusJakartaSans(
+          color: Colors.red[700],
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
         ),
-        const Spacer(),
-        IconButton(
-          onPressed: () {},
-          icon: const Icon(Icons.notifications_none_rounded),
-          color: const Color(0xFF6B7280),
-        ),
-        IconButton(
-          onPressed: () {},
-          icon: const Icon(Icons.help_outline_rounded),
-          color: const Color(0xFF6B7280),
-        ),
-        const SizedBox(width: 8),
-        Text(
-          'Live View',
-          style: GoogleFonts.plusJakartaSans(
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            color: const Color(0xFF0D4DB3),
-          ),
-        ),
-      ],
+      ),
     );
   }
 
@@ -358,17 +439,13 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
-              Icons.radar_rounded,
-              size: 18,
-              color: Color(0xFF0D4DB3),
-            ),
+            const Icon(Icons.radar_rounded, size: 18, color: Color(0xFF0D4DB3)),
             const SizedBox(width: 10),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'ACTIVE PINGS',
+                  'ACTIVE LIVE LOCATIONS',
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 10,
                     fontWeight: FontWeight.w700,
@@ -378,7 +455,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '$activeCount Students',
+                  '$activeCount Student${activeCount == 1 ? '' : 's'}',
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 18,
                     fontWeight: FontWeight.w800,
@@ -418,14 +495,12 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
           (user) =>
               user.assignedLatitude != null &&
               user.assignedLongitude != null &&
-              user.allowedRadius != null,
+              user.allowedRadius != null &&
+              user.allowedRadius! > 0,
         )
         .map(
           (user) => CircleMarker(
-            point: LatLng(
-              user.assignedLatitude!,
-              user.assignedLongitude!,
-            ),
+            point: LatLng(user.assignedLatitude!, user.assignedLongitude!),
             radius: user.allowedRadius!,
             useRadiusInMeter: true,
             color: const Color(0xFF0D4DB3).withOpacity(0.12),
@@ -448,8 +523,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
               ),
               children: [
                 TileLayer(
-                  urlTemplate:
-                      'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                   userAgentPackageName: 'com.example.ojt_monitoring_app',
                 ),
                 CircleLayer(circles: geofenceCircles),
@@ -463,7 +537,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                 color: Colors.white.withOpacity(0.55),
                 child: Center(
                   child: Text(
-                    'No live location updates yet.',
+                    'No active live location updates yet.',
                     style: GoogleFonts.plusJakartaSans(
                       fontSize: 13,
                       color: Colors.grey[600],
@@ -526,15 +600,16 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
   }
 
   Widget _buildMapMarker(LiveLocationModel item) {
+    final displayName = item.fullName.trim().isEmpty
+        ? 'Intern'
+        : item.fullName.trim();
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(
           constraints: const BoxConstraints(maxWidth: 110),
-          padding: const EdgeInsets.symmetric(
-            horizontal: 10,
-            vertical: 6,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(999),
@@ -547,7 +622,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
             ],
           ),
           child: Text(
-            item.fullName,
+            displayName,
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
             style: GoogleFonts.plusJakartaSans(
@@ -593,8 +668,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
           color: filled ? const Color(0xFF0D4DB3) : Colors.white,
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color:
-                filled ? const Color(0xFF0D4DB3) : const Color(0xFFE7ECF3),
+            color: filled ? const Color(0xFF0D4DB3) : const Color(0xFFE7ECF3),
           ),
           boxShadow: [
             BoxShadow(
@@ -616,15 +690,18 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
   Widget _buildActiveSessionsHeader(int count) {
     return Row(
       children: [
-        Text(
-          'Active Sessions',
-          style: GoogleFonts.plusJakartaSans(
-            fontSize: 22,
-            fontWeight: FontWeight.w800,
-            color: const Color(0xFF0A2351),
+        Expanded(
+          child: Text(
+            'Active Sessions',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              color: const Color(0xFF0A2351),
+            ),
           ),
         ),
-        const Spacer(),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
@@ -655,6 +732,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
           style: GoogleFonts.plusJakartaSans(
             fontSize: 13,
             color: Colors.grey[500],
+            fontWeight: FontWeight.w600,
           ),
         ),
       );
@@ -667,20 +745,22 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
         final user = activeUsers[index];
         final latest = latestLogs[user.uid];
 
-        final sessionText =
-            latest == null || latest.status != AttendanceStatus.clockIn
-                ? '--:--:--'
-                : _formatElapsed(DateTime.now().difference(latest.timestamp));
-
-        final hasGeofence = user.assignedLatitude != null &&
+        final hasGeofence =
+            user.assignedLatitude != null &&
             user.assignedLongitude != null &&
-            user.allowedRadius != null;
+            user.allowedRadius != null &&
+            user.allowedRadius! > 0;
 
         return _buildSessionCard(
           initials: _initialsOf(user.fullName),
           name: user.fullName,
-          company: hasGeofence ? 'Geofence Configured' : user.email,
-          sessionTime: sessionText,
+          subtitle: user.companyName?.trim().isNotEmpty == true
+              ? user.companyName!.trim()
+              : user.email,
+          detail: hasGeofence
+              ? '${user.allowedRadius!.toStringAsFixed(0)}m geofence configured'
+              : 'No geofence assigned',
+          clockInTime: latest?.timestamp,
           statusColor: const Color(0xFF14A44D),
         );
       },
@@ -690,8 +770,9 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
   Widget _buildSessionCard({
     required String initials,
     required String name,
-    required String company,
-    required String sessionTime,
+    required String subtitle,
+    required String detail,
+    required DateTime? clockInTime,
     required Color statusColor,
   }) {
     return Container(
@@ -738,7 +819,9 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  name,
+                  name.trim().isEmpty ? 'Unnamed Intern' : name.trim(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
@@ -747,15 +830,28 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  company,
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 11,
                     color: Colors.grey[600],
                   ),
                 ),
+                const SizedBox(height: 4),
+                Text(
+                  detail,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 10,
+                    color: Colors.grey[500],
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
                 const SizedBox(height: 8),
                 _LiveSessionTimeChip(
-                  initialText: sessionTime,
+                  clockInTime: clockInTime,
                   statusColor: statusColor,
                 ),
               ],
@@ -768,9 +864,11 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
 
   Widget _buildCoverageCard({
     required int activeCount,
-    required int totalUsers,
+    required int visibleCount,
+    required int totalAssigned,
   }) {
-    final double coverage = totalUsers == 0 ? 0 : activeCount / totalUsers;
+    final denominator = visibleCount == 0 ? totalAssigned : visibleCount;
+    final double coverage = denominator == 0 ? 0 : activeCount / denominator;
 
     return Container(
       width: double.infinity,
@@ -781,9 +879,10 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            'TOTAL COVERAGE',
+            'LIVE COVERAGE',
             style: GoogleFonts.plusJakartaSans(
               fontSize: 10,
               fontWeight: FontWeight.w700,
@@ -795,7 +894,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
           Text(
             '${(coverage * 100).toStringAsFixed(1)}%',
             style: GoogleFonts.plusJakartaSans(
-              fontSize: 34,
+              fontSize: 30,
               fontWeight: FontWeight.w800,
               color: Colors.white,
             ),
@@ -804,7 +903,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
           Row(
             children: [
               Text(
-                'Sync Status',
+                '$activeCount active',
                 style: GoogleFonts.plusJakartaSans(
                   fontSize: 11,
                   color: Colors.white70,
@@ -812,7 +911,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
               ),
               const Spacer(),
               Text(
-                activeCount > 0 ? 'Live' : 'Idle',
+                '$totalAssigned assigned',
                 style: GoogleFonts.plusJakartaSans(
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
@@ -844,20 +943,14 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
     return (parts.first.substring(0, 1) + parts.last.substring(0, 1))
         .toUpperCase();
   }
-
-  String _formatElapsed(Duration duration) {
-    String pad(int value) => value.toString().padLeft(2, '0');
-
-    return '${pad(duration.inHours)}:${pad(duration.inMinutes.remainder(60))}:${pad(duration.inSeconds.remainder(60))}';
-  }
 }
 
 class _LiveSessionTimeChip extends StatefulWidget {
-  final String initialText;
+  final DateTime? clockInTime;
   final Color statusColor;
 
   const _LiveSessionTimeChip({
-    required this.initialText,
+    required this.clockInTime,
     required this.statusColor,
   });
 
@@ -866,50 +959,28 @@ class _LiveSessionTimeChip extends StatefulWidget {
 }
 
 class _LiveSessionTimeChipState extends State<_LiveSessionTimeChip> {
-  late final Stopwatch _stopwatch;
-  late final Ticker _ticker;
+  Timer? _timer;
 
   @override
   void initState() {
     super.initState();
-
-    _stopwatch = Stopwatch()..start();
-
-    _ticker = Ticker((_) {
-      if (mounted) {
-        setState(() {});
-      }
-    })..start();
-  }
-
-  @override
-  void didUpdateWidget(covariant _LiveSessionTimeChip oldWidget) {
-    super.didUpdateWidget(oldWidget);
-
-    if (oldWidget.initialText != widget.initialText) {
-      _stopwatch
-        ..reset()
-        ..start();
-    }
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
   void dispose() {
-    _ticker.dispose();
-    _stopwatch.stop();
+    _timer?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final base = _parseDuration(widget.initialText);
-    final current = base + _stopwatch.elapsed;
+    final duration = _safeElapsed(widget.clockInTime);
 
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 10,
-        vertical: 5,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
         color: widget.statusColor.withOpacity(0.10),
         borderRadius: BorderRadius.circular(999),
@@ -917,14 +988,10 @@ class _LiveSessionTimeChipState extends State<_LiveSessionTimeChip> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.schedule_rounded,
-            size: 12,
-            color: widget.statusColor,
-          ),
+          Icon(Icons.schedule_rounded, size: 12, color: widget.statusColor),
           const SizedBox(width: 6),
           Text(
-            _formatElapsed(current),
+            _formatElapsed(duration),
             style: GoogleFonts.plusJakartaSans(
               fontSize: 10,
               fontWeight: FontWeight.w700,
@@ -936,24 +1003,19 @@ class _LiveSessionTimeChipState extends State<_LiveSessionTimeChip> {
     );
   }
 
-  static Duration _parseDuration(String value) {
-    final parts = value.split(':');
-    if (parts.length != 3) return Duration.zero;
+  static Duration _safeElapsed(DateTime? startTime) {
+    if (startTime == null) return Duration.zero;
 
-    final hours = int.tryParse(parts[0]) ?? 0;
-    final minutes = int.tryParse(parts[1]) ?? 0;
-    final seconds = int.tryParse(parts[2]) ?? 0;
+    final elapsed = DateTime.now().difference(startTime);
+    if (elapsed.isNegative) return Duration.zero;
 
-    return Duration(
-      hours: hours,
-      minutes: minutes,
-      seconds: seconds,
-    );
+    return elapsed;
   }
 
   static String _formatElapsed(Duration duration) {
+    final safe = duration.isNegative ? Duration.zero : duration;
     String pad(int value) => value.toString().padLeft(2, '0');
 
-    return '${pad(duration.inHours)}:${pad(duration.inMinutes.remainder(60))}:${pad(duration.inSeconds.remainder(60))}';
+    return '${pad(safe.inHours)}:${pad(safe.inMinutes.remainder(60))}:${pad(safe.inSeconds.remainder(60))}';
   }
 }

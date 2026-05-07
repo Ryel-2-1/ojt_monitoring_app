@@ -72,6 +72,24 @@ class OfflineAttendanceQueueService {
   }) async {
     final box = await _ensureBox();
 
+    final existingPendingClockOut =
+        box.values
+            .map((raw) => OfflineAttendanceAction.fromMap(raw))
+            .where(
+              (action) =>
+                  action.uid == uid &&
+                  action.status == AttendanceStatus.clockOut,
+            )
+            .toList()
+          ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+
+    if (existingPendingClockOut.isNotEmpty) {
+      debugPrint(
+        'Offline queue: clock-out already pending for $uid. Skipping duplicate enqueue.',
+      );
+      return;
+    }
+
     final action = OfflineAttendanceAction(
       id: '${uid}_${DateTime.now().microsecondsSinceEpoch}',
       uid: uid,
