@@ -15,7 +15,7 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  int _selectedNavIndex = 3;
+  final int _selectedNavIndex = 3;
 
   final TextEditingController _supervisorCodeController =
       TextEditingController();
@@ -23,6 +23,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
   double _completedOjtHours = 0;
   bool _isLoadingProgress = true;
   bool _isJoiningSupervisor = false;
+
+  static const Color _blue = Color(0xFF0D4DB3);
+  static const Color _navy = Color(0xFF0A2351);
+  static const Color _red = Color(0xFFE53935);
+  static const Color _green = Color(0xFF14A44D);
+  static const Color _orange = Color(0xFFE86C3A);
+
+  bool get _isDarkMode => AppServices.of(context).themeController.isDarkMode;
+
+  Color get _background =>
+      _isDarkMode ? const Color(0xFF0B1120) : const Color(0xFFF5F7FA);
+
+  Color get _cardColor => _isDarkMode ? const Color(0xFF0F172A) : Colors.white;
+
+  Color get _softCardColor =>
+      _isDarkMode ? const Color(0xFF111827) : const Color(0xFFF8FAFC);
+
+  Color get _borderColor =>
+      _isDarkMode ? const Color(0xFF243244) : const Color(0xFFE6EBF2);
+
+  Color get _titleColor => _isDarkMode ? Colors.white : const Color(0xFF0D1B2A);
+
+  Color get _mutedColor =>
+      _isDarkMode ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280);
 
   @override
   void dispose() {
@@ -95,7 +119,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
         lastClockIn = log.timestamp;
       } else if (log.status == AttendanceStatus.clockOut &&
           lastClockIn != null) {
-        totalHours += log.timestamp.difference(lastClockIn).inMinutes / 60.0;
+        final duration = log.timestamp.difference(lastClockIn);
+        if (!duration.isNegative) {
+          totalHours += duration.inMinutes / 60.0;
+        }
         lastClockIn = null;
       }
     }
@@ -107,21 +134,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final code = _supervisorCodeController.text.trim();
 
     if (code.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Please enter your supervisor enrollment code.',
-            style: GoogleFonts.dmSans(fontSize: 13),
-          ),
-          backgroundColor: const Color(0xFFC62828),
-        ),
+      _showSnackBar(
+        'Please enter your supervisor enrollment code.',
+        isError: true,
       );
       return;
     }
 
-    setState(() {
-      _isJoiningSupervisor = true;
-    });
+    setState(() => _isJoiningSupervisor = true);
 
     try {
       final services = AppServices.of(context);
@@ -140,160 +160,155 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       _supervisorCodeController.clear();
 
-      setState(() {
-        _isJoiningSupervisor = false;
-      });
+      setState(() => _isJoiningSupervisor = false);
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Successfully joined supervisor. Please wait for your OJT assignment.',
-            style: GoogleFonts.dmSans(fontSize: 13),
-          ),
-          backgroundColor: const Color(0xFF14A44D),
-        ),
+      _showSnackBar(
+        'Successfully joined supervisor. Please wait for your OJT assignment.',
       );
     } catch (e) {
       if (!mounted) return;
 
-      setState(() {
-        _isJoiningSupervisor = false;
-      });
+      setState(() => _isJoiningSupervisor = false);
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            e.toString().replaceFirst('Exception: ', ''),
-            style: GoogleFonts.dmSans(fontSize: 13),
-          ),
-          backgroundColor: const Color(0xFFC62828),
-        ),
+      _showSnackBar(
+        e.toString().replaceFirst('Exception: ', ''),
+        isError: true,
       );
     }
   }
 
-  Future<void> _handleSignOut() async {
+  Future<bool> _ensureCanSignOut() async {
     final services = AppServices.of(context);
     final currentUser = services.authService.currentUser;
 
-    if (currentUser == null) return;
+    if (currentUser == null) return false;
 
     try {
       final isClockedIn = await services.attendanceRepository
           .isCurrentlyClockedIn(currentUser.uid);
 
-      if (isClockedIn) {
-        if (!mounted) return;
+      if (!mounted) return false;
 
-        final goToTimer = await showDialog<bool>(
-          context: context,
-          builder: (context) {
-            return AlertDialog(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              title: Text(
-                'Active session detected',
-                style: GoogleFonts.dmSans(
-                  fontWeight: FontWeight.w800,
-                  color: const Color(0xFF0D1B2A),
-                ),
-              ),
-              content: Text(
-                'You are currently clocked in. Please clock out first before signing out.',
-                style: GoogleFonts.dmSans(
-                  fontSize: 13,
-                  color: Colors.grey[700],
-                  height: 1.45,
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context, false),
-                  child: Text(
-                    'Cancel',
-                    style: GoogleFonts.dmSans(
-                      fontWeight: FontWeight.w700,
-                      color: Colors.grey[700],
-                    ),
-                  ),
-                ),
-                ElevatedButton(
-                  onPressed: () => Navigator.pop(context, true),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF0D4DB3),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                  child: Text(
-                    'Go to Timer',
-                    style: GoogleFonts.dmSans(fontWeight: FontWeight.w800),
-                  ),
-                ),
-              ],
-            );
-          },
-        );
+      if (!isClockedIn) return true;
 
-        if (goToTimer == true && mounted) {
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const TimerScreen()),
-            (route) => route.isFirst,
+      final goToTimer = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            backgroundColor: _cardColor,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: Text(
+              'Active session detected',
+              style: GoogleFonts.dmSans(
+                fontWeight: FontWeight.w800,
+                color: _titleColor,
+              ),
+            ),
+            content: Text(
+              'You are currently clocked in. Please clock out first before signing out.',
+              style: GoogleFonts.dmSans(
+                fontSize: 13,
+                color: _mutedColor,
+                height: 1.45,
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: Text(
+                  'Cancel',
+                  style: GoogleFonts.dmSans(
+                    fontWeight: FontWeight.w700,
+                    color: _mutedColor,
+                  ),
+                ),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _blue,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                child: Text(
+                  'Go to Timer',
+                  style: GoogleFonts.dmSans(fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
           );
-        }
-
-        return;
-      }
-    } catch (_) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Could not verify your session. Please try again.',
-            style: GoogleFonts.dmSans(fontSize: 13),
-          ),
-        ),
+        },
       );
 
-      return;
+      if (goToTimer == true && mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const TimerScreen()),
+          (route) => route.isFirst,
+        );
+      }
+
+      return false;
+    } catch (_) {
+      if (!mounted) return false;
+
+      _showSnackBar(
+        'Could not verify your session. Please try again.',
+        isError: true,
+      );
+
+      return false;
     }
+  }
+
+  Future<void> _handleSignOut() async {
+    final canSignOut = await _ensureCanSignOut();
+    if (!canSignOut || !mounted) return;
+
+    final services = AppServices.of(context);
+    final navigator = Navigator.of(context);
 
     final shouldSignOut = await showDialog<bool>(
       context: context,
-      builder: (context) {
+      builder: (dialogContext) {
         return AlertDialog(
+          backgroundColor: _cardColor,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
           title: Text(
             'Sign out?',
             style: GoogleFonts.dmSans(
-              fontWeight: FontWeight.w700,
-              color: const Color(0xFF0D1B2A),
+              fontWeight: FontWeight.w800,
+              color: _titleColor,
             ),
           ),
           content: Text(
             'You will be returned to the login screen.',
-            style: GoogleFonts.dmSans(fontSize: 13, color: Colors.grey[700]),
+            style: GoogleFonts.dmSans(
+              fontSize: 13,
+              color: _mutedColor,
+              height: 1.4,
+            ),
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context, false),
+              onPressed: () => Navigator.pop(dialogContext, false),
               child: Text(
                 'Cancel',
                 style: GoogleFonts.dmSans(
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey[700],
+                  fontWeight: FontWeight.w700,
+                  color: _mutedColor,
                 ),
               ),
             ),
             ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
+              onPressed: () => Navigator.pop(dialogContext, true),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF0D4DB3),
+                backgroundColor: _red,
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
@@ -301,7 +316,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               child: Text(
                 'Sign Out',
-                style: GoogleFonts.dmSans(fontWeight: FontWeight.w700),
+                style: GoogleFonts.dmSans(fontWeight: FontWeight.w800),
               ),
             ),
           ],
@@ -309,132 +324,124 @@ class _ProfileScreenState extends State<ProfileScreen> {
       },
     );
 
-    if (shouldSignOut != true || !mounted) return;
+    if (shouldSignOut != true) return;
 
     try {
       await services.authService.signOut();
 
       if (!mounted) return;
 
-      Navigator.of(context).pushAndRemoveUntil(
+      navigator.pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const AuthGate()),
         (route) => false,
       );
     } catch (_) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Failed to sign out. Please try again.',
-            style: GoogleFonts.dmSans(fontSize: 13),
-          ),
-        ),
-      );
+      _showSnackBar('Failed to sign out. Please try again.', isError: true);
     }
+  }
+
+  void _showSnackBar(String message, {bool isError = false}) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          message,
+          style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w600),
+        ),
+        backgroundColor: isError ? const Color(0xFFC62828) : _green,
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final services = AppServices.of(context);
-    final firebaseUser = services.authService.currentUser;
 
-    final uid = firebaseUser?.uid;
+    return AnimatedBuilder(
+      animation: services.themeController,
+      builder: (context, _) {
+        final firebaseUser = services.authService.currentUser;
+        final uid = firebaseUser?.uid;
 
-    if (uid != null && _isLoadingProgress) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          _loadCompletedHours(uid);
+        if (uid != null && _isLoadingProgress) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              _loadCompletedHours(uid);
+            }
+          });
         }
-      });
-    }
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
-      body: SafeArea(
-        child: uid == null
-            ? _buildProblemState()
-            : FutureBuilder<UserModel?>(
-                future: services.userRepository.getUserByUid(uid),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(
-                      child: CircularProgressIndicator(
-                        color: Color(0xFF0D4DB3),
-                      ),
-                    );
-                  }
+        return Scaffold(
+          backgroundColor: _background,
+          body: SafeArea(
+            child: uid == null
+                ? _buildProblemState()
+                : FutureBuilder<UserModel?>(
+                    future: services.userRepository.getUserByUid(uid),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(
+                          child: CircularProgressIndicator(color: _blue),
+                        );
+                      }
 
-                  if (snapshot.hasError) {
-                    return _buildProblemState();
-                  }
+                      if (snapshot.hasError) {
+                        return _buildProblemState();
+                      }
 
-                  final user = snapshot.data;
+                      final user = snapshot.data;
 
-                  final displayName = user?.fullName.trim().isNotEmpty == true
-                      ? user!.fullName
-                      : firebaseUser?.displayName ?? 'Intern';
+                      final displayName =
+                          user?.fullName.trim().isNotEmpty == true
+                          ? user!.fullName.trim()
+                          : firebaseUser?.displayName ?? 'Intern';
 
-                  final email = user?.email.trim().isNotEmpty == true
-                      ? user!.email
-                      : firebaseUser?.email ?? 'No email';
+                      final email = user?.email.trim().isNotEmpty == true
+                          ? user!.email.trim()
+                          : firebaseUser?.email ?? 'No email';
 
-                  return Column(
-                    children: [
-                      Expanded(
-                        child: SingleChildScrollView(
-                          padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              _buildHeader(),
-                              const SizedBox(height: 24),
-                              Text(
-                                'STUDENT IDENTITY',
-                                style: GoogleFonts.dmSans(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w800,
-                                  color: const Color(0xFF0D4DB3),
-                                  letterSpacing: 1.2,
-                                ),
+                      return Column(
+                        children: [
+                          Expanded(
+                            child: SingleChildScrollView(
+                              padding: const EdgeInsets.fromLTRB(
+                                18,
+                                16,
+                                18,
+                                24,
                               ),
-                              const SizedBox(height: 8),
-                              Text(
-                                displayName,
-                                style: GoogleFonts.dmSans(
-                                  fontSize: 26,
-                                  fontWeight: FontWeight.w800,
-                                  color: const Color(0xFF0D1B2A),
-                                ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _buildHeader(),
+                                  const SizedBox(height: 24),
+                                  _buildIdentityHeader(
+                                    displayName: displayName,
+                                    email: email,
+                                  ),
+                                  const SizedBox(height: 24),
+                                  _buildSupervisorJoinCard(user),
+                                  const SizedBox(height: 18),
+                                  _buildInternshipDetails(user),
+                                  const SizedBox(height: 18),
+                                  _buildProgressCard(user),
+                                  const SizedBox(height: 18),
+                                  _buildAccountCard(user),
+                                ],
                               ),
-                              const SizedBox(height: 4),
-                              Text(
-                                email,
-                                style: GoogleFonts.dmSans(
-                                  fontSize: 13,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                              const SizedBox(height: 24),
-                              _buildSupervisorJoinCard(user),
-                              const SizedBox(height: 18),
-                              _buildInternshipDetails(user),
-                              const SizedBox(height: 18),
-                              _buildProgressCard(user),
-                              const SizedBox(height: 18),
-                              _buildAccountCard(user),
-                              const SizedBox(height: 24),
-                              _buildLogoutButton(),
-                            ],
+                            ),
                           ),
-                        ),
-                      ),
-                      _buildBottomNav(),
-                    ],
-                  );
-                },
-              ),
-      ),
+                          _buildBottomNav(),
+                        ],
+                      );
+                    },
+                  ),
+          ),
+        );
+      },
     );
   }
 
@@ -445,37 +452,68 @@ class _ProfileScreenState extends State<ProfileScreen> {
           width: 38,
           height: 38,
           decoration: BoxDecoration(
-            color: const Color(0xFFEAF1FF),
+            color: _isDarkMode
+                ? const Color(0xFF1E293B)
+                : const Color(0xFFEAF1FF),
             borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: _borderColor),
           ),
-          child: const Icon(
-            Icons.person_outline,
-            color: Color(0xFF0D4DB3),
-            size: 22,
-          ),
+          child: const Icon(Icons.person_outline, color: _blue, size: 22),
         ),
         const SizedBox(width: 10),
         Text(
           'Profile',
           style: GoogleFonts.dmSans(
             fontSize: 18,
-            fontWeight: FontWeight.w800,
-            color: const Color(0xFF0D4DB3),
+            fontWeight: FontWeight.w900,
+            color: _blue,
           ),
         ),
         const Spacer(),
         IconButton(
-          onPressed: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  'Account settings coming soon.',
-                  style: GoogleFonts.dmSans(fontSize: 13),
-                ),
-              ),
-            );
-          },
-          icon: const Icon(Icons.settings_outlined, color: Color(0xFF0D4DB3)),
+          tooltip: 'Settings',
+          onPressed: _showSettingsSheet,
+          icon: const Icon(Icons.settings_outlined, color: _blue),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildIdentityHeader({
+    required String displayName,
+    required String email,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'STUDENT IDENTITY',
+          style: GoogleFonts.dmSans(
+            fontSize: 11,
+            fontWeight: FontWeight.w900,
+            color: _blue,
+            letterSpacing: 1.2,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          displayName,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: GoogleFonts.dmSans(
+            fontSize: 26,
+            fontWeight: FontWeight.w900,
+            color: _titleColor,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          email,
+          style: GoogleFonts.dmSans(
+            fontSize: 13,
+            color: _mutedColor,
+            fontWeight: FontWeight.w500,
+          ),
         ),
       ],
     );
@@ -498,13 +536,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Supervisor Enrollment',
-            style: GoogleFonts.dmSans(
-              fontSize: 15,
-              fontWeight: FontWeight.w800,
-              color: const Color(0xFF0D1B2A),
-            ),
+          _buildCardTitle(
+            icon: Icons.group_add_outlined,
+            title: 'Supervisor Enrollment',
           ),
           const SizedBox(height: 8),
           Text(
@@ -513,8 +547,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 : 'Enter the enrollment code given by your supervisor to join their OJT group.',
             style: GoogleFonts.dmSans(
               fontSize: 12,
-              color: Colors.grey[600],
+              color: _mutedColor,
               height: 1.4,
+              fontWeight: FontWeight.w500,
             ),
           ),
           const SizedBox(height: 16),
@@ -542,27 +577,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
             TextField(
               controller: _supervisorCodeController,
               textCapitalization: TextCapitalization.characters,
-              decoration: InputDecoration(
-                hintText: 'Example: SUP-A7K9Q2',
-                hintStyle: GoogleFonts.dmSans(
-                  fontSize: 13,
-                  color: Colors.grey[500],
-                ),
-                prefixIcon: const Icon(Icons.vpn_key_outlined),
-                filled: true,
-                fillColor: const Color(0xFFF5F7FA),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: Color(0xFFE6EBF2)),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: Color(0xFFE6EBF2)),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: Color(0xFF0D4DB3)),
-                ),
+              style: GoogleFonts.dmSans(
+                color: _titleColor,
+                fontWeight: FontWeight.w700,
+              ),
+              decoration: _inputDecoration(
+                hint: 'Example: SUP-A7K9Q2',
+                icon: Icons.vpn_key_outlined,
               ),
             ),
             const SizedBox(height: 12),
@@ -589,7 +610,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                 ),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF0D4DB3),
+                  backgroundColor: _blue,
                   foregroundColor: Colors.white,
                   disabledBackgroundColor: Colors.grey[300],
                   shape: RoundedRectangleBorder(
@@ -615,6 +636,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ? 'No geofence radius yet'
         : '${user!.allowedRadius!.toStringAsFixed(0)} meters radius';
 
+    final coordinates =
+        user?.assignedLatitude == null || user?.assignedLongitude == null
+        ? 'No coordinates yet'
+        : '${user!.assignedLatitude!.toStringAsFixed(6)}, ${user.assignedLongitude!.toStringAsFixed(6)}';
+
     final duration = _formatDuration(
       user?.internshipStartDate,
       user?.internshipEndDate,
@@ -624,13 +650,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Internship Details',
-            style: GoogleFonts.dmSans(
-              fontSize: 15,
-              fontWeight: FontWeight.w800,
-              color: const Color(0xFF0D1B2A),
-            ),
+          _buildCardTitle(
+            icon: Icons.business_center_outlined,
+            title: 'Internship Details',
           ),
           const SizedBox(height: 18),
           _buildDetailRow(
@@ -643,6 +665,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
             icon: Icons.location_on_outlined,
             label: 'Location',
             value: address,
+          ),
+          const SizedBox(height: 14),
+          _buildDetailRow(
+            icon: Icons.my_location_outlined,
+            label: 'Coordinates',
+            value: coordinates,
           ),
           const SizedBox(height: 14),
           _buildDetailRow(
@@ -678,8 +706,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
       width: double.infinity,
       padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
-        color: const Color(0xFF0D4DB3),
-        borderRadius: BorderRadius.circular(16),
+        color: _blue,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          if (!_isDarkMode)
+            BoxShadow(
+              color: _blue.withValues(alpha: 0.16),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+        ],
       ),
       child: Column(
         children: [
@@ -699,7 +735,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               border: Border.all(
-                color: Colors.white.withOpacity(0.35),
+                color: Colors.white.withValues(alpha: 0.35),
                 width: 8,
               ),
             ),
@@ -772,7 +808,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.12),
+        color: Colors.white.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -806,13 +842,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Account',
-            style: GoogleFonts.dmSans(
-              fontSize: 15,
-              fontWeight: FontWeight.w800,
-              color: const Color(0xFF0D1B2A),
-            ),
+          _buildCardTitle(
+            icon: Icons.manage_accounts_outlined,
+            title: 'Account',
           ),
           const SizedBox(height: 14),
           _buildDetailRow(
@@ -831,26 +863,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildLogoutButton() {
-    return SizedBox(
-      width: double.infinity,
-      height: 52,
-      child: ElevatedButton.icon(
-        onPressed: _handleSignOut,
-        icon: const Icon(Icons.logout_rounded, size: 18),
-        label: Text(
-          'Logout',
-          style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w800),
-        ),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFFE53935),
-          foregroundColor: Colors.white,
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+  Widget _buildCardTitle({required IconData icon, required String title}) {
+    return Row(
+      children: [
+        _buildSmallIconBox(icon),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            title,
+            style: GoogleFonts.dmSans(
+              fontSize: 15,
+              fontWeight: FontWeight.w900,
+              color: _titleColor,
+            ),
           ),
         ),
-      ),
+      ],
     );
   }
 
@@ -859,14 +887,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
       width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _cardColor,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _borderColor),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 18,
-            offset: const Offset(0, 6),
-          ),
+          if (!_isDarkMode)
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 18,
+              offset: const Offset(0, 6),
+            ),
         ],
       ),
       child: child,
@@ -881,15 +911,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          width: 34,
-          height: 34,
-          decoration: BoxDecoration(
-            color: const Color(0xFFEAF1FF),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Icon(icon, size: 18, color: const Color(0xFF0D4DB3)),
-        ),
+        _buildSmallIconBox(icon),
         const SizedBox(width: 12),
         Expanded(
           child: Column(
@@ -899,8 +921,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 label,
                 style: GoogleFonts.dmSans(
                   fontSize: 11,
-                  color: Colors.grey[500],
-                  fontWeight: FontWeight.w600,
+                  color: _mutedColor,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
               const SizedBox(height: 2),
@@ -908,8 +930,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 value,
                 style: GoogleFonts.dmSans(
                   fontSize: 13,
-                  color: const Color(0xFF0D1B2A),
-                  fontWeight: FontWeight.w700,
+                  color: _titleColor,
+                  fontWeight: FontWeight.w800,
                   height: 1.3,
                 ),
               ),
@@ -917,6 +939,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildSmallIconBox(IconData icon) {
+    return Container(
+      width: 34,
+      height: 34,
+      decoration: BoxDecoration(
+        color: _isDarkMode ? const Color(0xFF1E293B) : const Color(0xFFEAF1FF),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: _borderColor),
+      ),
+      child: Icon(icon, size: 18, color: _blue),
     );
   }
 
@@ -932,8 +967,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 textAlign: TextAlign.center,
                 style: GoogleFonts.dmSans(
                   fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey[700],
+                  fontWeight: FontWeight.w700,
+                  color: _mutedColor,
                 ),
               ),
             ),
@@ -954,9 +989,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 18),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: Color(0xFFE9EEF5))),
+      decoration: BoxDecoration(
+        color: _cardColor,
+        border: Border(top: BorderSide(color: _borderColor)),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -974,17 +1009,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Icon(
                     items[i].$1,
                     size: 20,
-                    color: active ? const Color(0xFF0D4DB3) : Colors.grey[400],
+                    color: active ? _blue : _mutedColor,
                   ),
                   const SizedBox(height: 4),
                   Text(
                     items[i].$2,
                     style: GoogleFonts.dmSans(
                       fontSize: 9,
-                      fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                      color: active
-                          ? const Color(0xFF0D4DB3)
-                          : Colors.grey[400],
+                      fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+                      color: active ? _blue : _mutedColor,
                       letterSpacing: 0.6,
                     ),
                   ),
@@ -993,6 +1026,199 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           );
         }),
+      ),
+    );
+  }
+
+  Future<void> _showSettingsSheet() async {
+    final themeController = AppServices.of(context).themeController;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: false,
+      backgroundColor: _cardColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) {
+        return AnimatedBuilder(
+          animation: themeController,
+          builder: (context, _) {
+            final isDark = themeController.isDarkMode;
+
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 14, 18, 22),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? const Color(0xFF374151)
+                            : const Color(0xFFD1D5DB),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Row(
+                      children: [
+                        Text(
+                          'Settings',
+                          style: GoogleFonts.dmSans(
+                            color: _titleColor,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          onPressed: () => Navigator.of(sheetContext).pop(),
+                          icon: Icon(Icons.close_rounded, color: _mutedColor),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    _buildDarkModeTile(themeController),
+                    const SizedBox(height: 12),
+                    _buildSettingsActionTile(
+                      icon: Icons.logout_rounded,
+                      title: 'Sign Out',
+                      subtitle: 'Sign out from this account',
+                      color: _red,
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        _handleSignOut();
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildDarkModeTile(AppThemeController themeController) {
+    final isDark = themeController.isDarkMode;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _softCardColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _borderColor),
+      ),
+      child: Row(
+        children: [
+          _buildSmallIconBox(
+            isDark ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Dark Mode',
+              style: GoogleFonts.dmSans(
+                fontSize: 14,
+                fontWeight: FontWeight.w900,
+                color: _titleColor,
+              ),
+            ),
+          ),
+          Switch(
+            value: isDark,
+            activeColor: _blue,
+            onChanged: themeController.setDarkMode,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSettingsActionTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: _softCardColor,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: _borderColor),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: _isDarkMode ? 0.18 : 0.10),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: color, size: 18),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: GoogleFonts.dmSans(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w900,
+                      color: _titleColor,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: GoogleFonts.dmSans(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w500,
+                      color: _mutedColor,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  InputDecoration _inputDecoration({
+    required String hint,
+    required IconData icon,
+  }) {
+    return InputDecoration(
+      hintText: hint,
+      hintStyle: GoogleFonts.dmSans(fontSize: 13, color: _mutedColor),
+      prefixIcon: Icon(icon, color: _blue),
+      filled: true,
+      fillColor: _softCardColor,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: _borderColor),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: _borderColor),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: _blue, width: 1.4),
       ),
     );
   }

@@ -21,14 +21,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
   final TextEditingController _searchController = TextEditingController();
   final MapController _mapController = MapController();
 
-  String _selectedFilter = 'All Assigned Interns';
   String _searchQuery = '';
-
-  final List<String> _filters = const [
-    'All Assigned Interns',
-    'Assigned Geofence Only',
-    'Active Sessions Only',
-  ];
 
   static const LatLng _fallbackCenter = LatLng(14.5995, 120.9842);
 
@@ -249,12 +242,12 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
         final narrow = constraints.maxWidth < 850;
 
         final searchField = SizedBox(
-          width: narrow ? double.infinity : 360,
+          width: narrow ? double.infinity : 420,
           child: TextField(
             controller: _searchController,
             onChanged: (value) => setState(() => _searchQuery = value),
             decoration: InputDecoration(
-              hintText: 'Search students by name, email, or company...',
+              hintText: 'Search interns by name, email, or company...',
               hintStyle: GoogleFonts.plusJakartaSans(
                 fontSize: 13,
                 color: Colors.grey[500],
@@ -275,30 +268,12 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
           ),
         );
 
-        final filter = Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: const Color(0xFFE7ECF3)),
-          ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              value: _selectedFilter,
-              borderRadius: BorderRadius.circular(12),
-              style: GoogleFonts.plusJakartaSans(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: const Color(0xFF0A2351),
-              ),
-              icon: const Icon(Icons.keyboard_arrow_down_rounded),
-              items: _filters.map((item) {
-                return DropdownMenuItem<String>(value: item, child: Text(item));
-              }).toList(),
-              onChanged: (value) {
-                if (value != null) setState(() => _selectedFilter = value);
-              },
-            ),
+        final helperText = Text(
+          'Showing all assigned interns. Active sessions appear on the map and session list.',
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey[600],
           ),
         );
 
@@ -307,14 +282,10 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               searchField,
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(child: filter),
-                  const SizedBox(width: 12),
-                  _buildLiveViewPill(),
-                ],
-              ),
+              const SizedBox(height: 10),
+              helperText,
+              const SizedBox(height: 10),
+              _buildLiveViewPill(),
             ],
           );
         }
@@ -323,18 +294,8 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
           children: [
             searchField,
             const SizedBox(width: 16),
-            Text(
-              'FILTER:',
-              style: GoogleFonts.plusJakartaSans(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                color: Colors.grey[500],
-                letterSpacing: 0.8,
-              ),
-            ),
-            const SizedBox(width: 10),
-            filter,
-            const Spacer(),
+            Expanded(child: helperText),
+            const SizedBox(width: 16),
             _buildLiveViewPill(),
           ],
         );
@@ -376,29 +337,13 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
 
   List<UserModel> _filterUsers(
     List<UserModel> users,
-    Map<String, AttendanceModel> latestLogs,
+    Map<String, AttendanceModel> _,
   ) {
     final q = _searchQuery.trim().toLowerCase();
 
+    if (q.isEmpty) return users;
+
     return users.where((user) {
-      final latest = latestLogs[user.uid];
-      final isActive = latest?.status == AttendanceStatus.clockIn;
-      final hasGeofence =
-          user.assignedLatitude != null &&
-          user.assignedLongitude != null &&
-          user.allowedRadius != null &&
-          user.allowedRadius! > 0;
-
-      if (_selectedFilter == 'Assigned Geofence Only' && !hasGeofence) {
-        return false;
-      }
-
-      if (_selectedFilter == 'Active Sessions Only' && !isActive) {
-        return false;
-      }
-
-      if (q.isEmpty) return true;
-
       return user.fullName.toLowerCase().contains(q) ||
           user.email.toLowerCase().contains(q) ||
           (user.companyName ?? '').toLowerCase().contains(q) ||
@@ -430,7 +375,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
           borderRadius: BorderRadius.circular(14),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.04),
+              color: Colors.black.withValues(alpha: 0.04),
               blurRadius: 10,
               offset: const Offset(0, 4),
             ),
@@ -503,9 +448,9 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
             point: LatLng(user.assignedLatitude!, user.assignedLongitude!),
             radius: user.allowedRadius!,
             useRadiusInMeter: true,
-            color: const Color(0xFF0D4DB3).withOpacity(0.12),
+            color: const Color(0xFF0D4DB3).withValues(alpha: 0.12),
             borderStrokeWidth: 2,
-            borderColor: const Color(0xFF0D4DB3).withOpacity(0.60),
+            borderColor: const Color(0xFF0D4DB3).withValues(alpha: 0.60),
           ),
         )
         .toList();
@@ -534,7 +479,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
           if (filteredLocations.isEmpty)
             Positioned.fill(
               child: Container(
-                color: Colors.white.withOpacity(0.55),
+                color: Colors.white.withValues(alpha: 0.55),
                 child: Center(
                   child: Text(
                     'No active live location updates yet.',
@@ -615,7 +560,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
             borderRadius: BorderRadius.circular(999),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.08),
+                color: Colors.black.withValues(alpha: 0.08),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),
@@ -642,7 +587,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
             border: Border.all(color: Colors.white, width: 3),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF0D4DB3).withOpacity(0.25),
+                color: const Color(0xFF0D4DB3).withValues(alpha: 0.25),
                 blurRadius: 12,
                 spreadRadius: 2,
               ),
@@ -672,7 +617,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.04),
+              color: Colors.black.withValues(alpha: 0.04),
               blurRadius: 10,
               offset: const Offset(0, 4),
             ),
@@ -740,7 +685,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
 
     return ListView.separated(
       itemCount: activeUsers.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      separatorBuilder: (context, index) => const SizedBox(height: 12),
       itemBuilder: (context, index) {
         final user = activeUsers[index];
         final latest = latestLogs[user.uid];
@@ -982,7 +927,7 @@ class _LiveSessionTimeChipState extends State<_LiveSessionTimeChip> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: widget.statusColor.withOpacity(0.10),
+        color: widget.statusColor.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(

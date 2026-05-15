@@ -13,6 +13,12 @@ class TimeRequestsScreen extends StatefulWidget {
 }
 
 class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
+  static const Color _blue = Color(0xFF0D4DB3);
+  static const Color _navy = Color(0xFF0A2351);
+  static const Color _green = Color(0xFF14A44D);
+  static const Color _orange = Color(0xFFF5A623);
+  static const Color _red = Color(0xFFC62828);
+
   String _selectedFilter = 'All';
 
   final List<String> _filters = const [
@@ -22,67 +28,89 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
     'Rejected',
   ];
 
+  bool get _isDarkMode => AppServices.of(context).themeController.isDarkMode;
+
+  Color get _pageTextColor =>
+      _isDarkMode ? Colors.white : const Color(0xFF0A2351);
+
+  Color get _bodyTextColor =>
+      _isDarkMode ? const Color(0xFFE5E7EB) : const Color(0xFF1C2434);
+
+  Color get _mutedTextColor =>
+      _isDarkMode ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280);
+
+  Color get _cardColor =>
+      _isDarkMode ? const Color(0xFF0F172A) : Colors.white;
+
+  Color get _softCardColor =>
+      _isDarkMode ? const Color(0xFF111827) : const Color(0xFFF8FAFD);
+
+  Color get _inputColor =>
+      _isDarkMode ? const Color(0xFF0B1120) : const Color(0xFFF5F7FA);
+
+  Color get _borderColor =>
+      _isDarkMode ? const Color(0xFF243244) : const Color(0xFFE7ECF3);
+
   @override
   Widget build(BuildContext context) {
     final repo = AppServices.of(context).timeRequestRepository;
+    final themeController = AppServices.of(context).themeController;
 
-    return Padding(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildHeader(),
-          const SizedBox(height: 20),
-          _buildFilterBar(),
-          const SizedBox(height: 20),
-          Expanded(
-            child: StreamBuilder<List<TimeRequestModel>>(
-              stream: repo.streamAllRequests(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                    child: CircularProgressIndicator(
-                      color: Color(0xFF0D4DB3),
-                    ),
-                  );
-                }
+    return AnimatedBuilder(
+      animation: themeController,
+      builder: (context, _) {
+        return Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildHeader(),
+              const SizedBox(height: 20),
+              _buildFilterBar(),
+              const SizedBox(height: 20),
+              Expanded(
+                child: StreamBuilder<List<TimeRequestModel>>(
+                  stream: repo.streamAllRequests(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(
+                        child: CircularProgressIndicator(color: _blue),
+                      );
+                    }
 
-                if (snapshot.hasError) {
-                  return _buildStateMessage(
-                    icon: Icons.error_outline_rounded,
-                    title: 'Could not load time requests',
-                    message:
-                        'Please check your connection or Firestore permissions and try again.',
-                  );
-                }
+                    if (snapshot.hasError) {
+                      return _buildStateMessage(
+                        icon: Icons.error_outline_rounded,
+                        title: 'Could not load time requests',
+                        message:
+                            'Please check your connection or Firestore permissions and try again.',
+                      );
+                    }
 
-                final requests = snapshot.data ?? [];
-                final filteredRequests = _filterRequests(requests);
+                    final requests = snapshot.data ?? [];
+                    final filteredRequests = _filterRequests(requests);
 
-                if (filteredRequests.isEmpty) {
-                  return _buildStateMessage(
-                    icon: Icons.inbox_outlined,
-                    title: 'No time requests found',
-                    message:
-                        'Requests submitted by interns will appear here for review.',
-                  );
-                }
+                    if (filteredRequests.isEmpty) {
+                      return _buildEmptyLayout(requests);
+                    }
 
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: _buildRequestList(filteredRequests),
-                    ),
-                    const SizedBox(width: 20),
-                    _buildSummaryPanel(requests),
-                  ],
-                );
-              },
-            ),
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: _buildRequestList(filteredRequests),
+                        ),
+                        const SizedBox(width: 20),
+                        _buildSummaryPanel(requests),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -95,7 +123,7 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
           style: GoogleFonts.plusJakartaSans(
             fontSize: 34,
             fontWeight: FontWeight.w900,
-            color: const Color(0xFF0A2351),
+            color: _pageTextColor,
           ),
         ),
         const SizedBox(height: 8),
@@ -103,7 +131,7 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
           'Review intern missing-time requests, add supervisor remarks, and approve verified adjustments.',
           style: GoogleFonts.plusJakartaSans(
             fontSize: 13,
-            color: Colors.grey[600],
+            color: _mutedTextColor,
             fontWeight: FontWeight.w500,
           ),
         ),
@@ -119,7 +147,7 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
           style: GoogleFonts.plusJakartaSans(
             fontSize: 11,
             fontWeight: FontWeight.w800,
-            color: Colors.grey[500],
+            color: _mutedTextColor,
             letterSpacing: 0.8,
           ),
         ),
@@ -130,23 +158,19 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
             final active = _selectedFilter == filter;
 
             return InkWell(
-              onTap: () {
-                setState(() => _selectedFilter = filter);
-              },
+              onTap: () => setState(() => _selectedFilter = filter),
               borderRadius: BorderRadius.circular(999),
-              child: Container(
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
                 padding: const EdgeInsets.symmetric(
                   horizontal: 14,
                   vertical: 8,
                 ),
                 decoration: BoxDecoration(
-                  color:
-                      active ? const Color(0xFF0D4DB3) : Colors.white,
+                  color: active ? _blue : _cardColor,
                   borderRadius: BorderRadius.circular(999),
                   border: Border.all(
-                    color: active
-                        ? const Color(0xFF0D4DB3)
-                        : const Color(0xFFE7ECF3),
+                    color: active ? _blue : _borderColor,
                   ),
                 ),
                 child: Text(
@@ -154,8 +178,7 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 12,
                     fontWeight: FontWeight.w800,
-                    color:
-                        active ? Colors.white : const Color(0xFF0A2351),
+                    color: active ? Colors.white : _pageTextColor,
                   ),
                 ),
               ),
@@ -166,13 +189,32 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
     );
   }
 
+  Widget _buildEmptyLayout(List<TimeRequestModel> allRequests) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: _buildStateMessage(
+            icon: Icons.inbox_outlined,
+            title: 'No time requests found',
+            message: _selectedFilter == 'All'
+                ? 'Requests submitted by interns will appear here for review.'
+                : 'No ${_selectedFilter.toLowerCase()} requests match the selected filter.',
+          ),
+        ),
+        const SizedBox(width: 20),
+        _buildSummaryPanel(allRequests),
+      ],
+    );
+  }
+
   Widget _buildRequestList(List<TimeRequestModel> requests) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _cardColor,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFE7ECF3)),
+        border: Border.all(color: _borderColor),
       ),
       child: Column(
         children: [
@@ -183,28 +225,11 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
                 style: GoogleFonts.plusJakartaSans(
                   fontSize: 18,
                   fontWeight: FontWeight.w900,
-                  color: const Color(0xFF0A2351),
+                  color: _pageTextColor,
                 ),
               ),
               const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEAF1FF),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  '${requests.length} request(s)',
-                  style: GoogleFonts.plusJakartaSans(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                    color: const Color(0xFF0D4DB3),
-                  ),
-                ),
-              ),
+              _buildCountBadge('${requests.length} request(s)'),
             ],
           ),
           const SizedBox(height: 16),
@@ -229,9 +254,9 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFD),
+        color: _softCardColor,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFE7ECF3)),
+        border: Border.all(color: _borderColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -240,13 +265,15 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
             children: [
               CircleAvatar(
                 radius: 22,
-                backgroundColor: const Color(0xFFE8F0FF),
+                backgroundColor: _isDarkMode
+                    ? const Color(0xFF1F2937)
+                    : const Color(0xFFE8F0FF),
                 child: Text(
                   _initialsOf(request.internName),
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 12,
                     fontWeight: FontWeight.w900,
-                    color: const Color(0xFF0D4DB3),
+                    color: _blue,
                   ),
                 ),
               ),
@@ -262,7 +289,7 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
                       style: GoogleFonts.plusJakartaSans(
                         fontSize: 15,
                         fontWeight: FontWeight.w900,
-                        color: const Color(0xFF1C2434),
+                        color: _pageTextColor,
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -272,7 +299,7 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
                       overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.plusJakartaSans(
                         fontSize: 12,
-                        color: Colors.grey[600],
+                        color: _mutedTextColor,
                       ),
                     ),
                   ],
@@ -348,31 +375,32 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
     );
 
     final remarksController = TextEditingController();
+    bool isProcessing = false;
 
     return StatefulBuilder(
       builder: (context, setLocalState) {
-        bool isProcessing = false;
-
         Future<void> submitReview(TimeRequestStatus status) async {
           setLocalState(() => isProcessing = true);
 
-          try {
-            final currentUser =
-                AppServices.of(context).authService.currentUser;
+          final authService = AppServices.of(context).authService;
+          final repository = AppServices.of(context).timeRequestRepository;
+          final messenger = ScaffoldMessenger.of(context);
 
-            await AppServices.of(context).timeRequestRepository.reviewRequest(
-                  requestId: request.id!,
-                  status: status,
-                  reviewedBy:
-                      currentUser?.email ?? currentUser?.uid ?? 'Supervisor',
-                  reviewRemarks: remarksController.text.trim(),
-                  approvedStartTime: approvedStartController.text.trim(),
-                  approvedEndTime: approvedEndController.text.trim(),
-                );
+          try {
+            final currentUser = authService.currentUser;
+
+            await repository.reviewRequest(
+              requestId: request.id!,
+              status: status,
+              reviewedBy: currentUser?.email ?? currentUser?.uid ?? 'Supervisor',
+              reviewRemarks: remarksController.text.trim(),
+              approvedStartTime: approvedStartController.text.trim(),
+              approvedEndTime: approvedEndController.text.trim(),
+            );
 
             if (!mounted) return;
 
-            ScaffoldMessenger.of(context).showSnackBar(
+            messenger.showSnackBar(
               SnackBar(
                 content: Text(
                   status == TimeRequestStatus.approved
@@ -384,20 +412,18 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
           } on TimeRequestReviewException catch (e) {
             if (!mounted) return;
 
-            ScaffoldMessenger.of(context).showSnackBar(
+            messenger.showSnackBar(
               SnackBar(
-                backgroundColor: const Color(0xFFF5A623),
+                backgroundColor: _orange,
                 content: Text(e.message),
               ),
             );
           } catch (_) {
             if (!mounted) return;
 
-            ScaffoldMessenger.of(context).showSnackBar(
+            messenger.showSnackBar(
               const SnackBar(
-                content: Text(
-                  'Failed to review request. Please try again.',
-                ),
+                content: Text('Failed to review request. Please try again.'),
               ),
             );
           } finally {
@@ -411,6 +437,17 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
           final picked = await showTimePicker(
             context: context,
             initialTime: _parseTimeOfDay(controller.text) ?? TimeOfDay.now(),
+            builder: (context, child) {
+              return Theme(
+                data: Theme.of(context).copyWith(
+                  colorScheme: ColorScheme.fromSeed(
+                    seedColor: _blue,
+                    brightness: _isDarkMode ? Brightness.dark : Brightness.light,
+                  ),
+                ),
+                child: child!,
+              );
+            },
           );
 
           if (picked == null) return;
@@ -423,9 +460,9 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
         return Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: _isDarkMode ? const Color(0xFF0B1120) : Colors.white,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFFE7ECF3)),
+            border: Border.all(color: _borderColor),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -435,7 +472,7 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
                 style: GoogleFonts.plusJakartaSans(
                   fontSize: 13,
                   fontWeight: FontWeight.w900,
-                  color: const Color(0xFF0A2351),
+                  color: _pageTextColor,
                 ),
               ),
               const SizedBox(height: 10),
@@ -445,7 +482,13 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
                     child: TextField(
                       controller: approvedStartController,
                       readOnly: true,
-                      onTap: () => pickTime(approvedStartController),
+                      style: GoogleFonts.plusJakartaSans(
+                        color: _pageTextColor,
+                        fontWeight: FontWeight.w700,
+                      ),
+                      onTap: isProcessing
+                          ? null
+                          : () => pickTime(approvedStartController),
                       decoration: _inputDecor(
                         'Approved Start',
                         suffixIcon: const Icon(Icons.access_time_rounded),
@@ -457,7 +500,12 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
                     child: TextField(
                       controller: approvedEndController,
                       readOnly: true,
-                      onTap: () => pickTime(approvedEndController),
+                      style: GoogleFonts.plusJakartaSans(
+                        color: _pageTextColor,
+                        fontWeight: FontWeight.w700,
+                      ),
+                      onTap:
+                          isProcessing ? null : () => pickTime(approvedEndController),
                       decoration: _inputDecor(
                         'Approved End',
                         suffixIcon: const Icon(Icons.timer_outlined),
@@ -470,6 +518,10 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
               TextField(
                 controller: remarksController,
                 maxLines: 2,
+                style: GoogleFonts.plusJakartaSans(
+                  color: _pageTextColor,
+                  fontWeight: FontWeight.w700,
+                ),
                 decoration: _inputDecor(
                   'Supervisor remarks',
                   suffixIcon: const Icon(Icons.rate_review_outlined),
@@ -491,8 +543,8 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
                         ),
                       ),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFFC62828),
-                        side: const BorderSide(color: Color(0xFFC62828)),
+                        foregroundColor: _red,
+                        side: const BorderSide(color: _red),
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -523,9 +575,10 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
                         ),
                       ),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF0D4DB3),
+                        backgroundColor: _blue,
                         foregroundColor: Colors.white,
-                        disabledBackgroundColor: Colors.grey[300],
+                        disabledBackgroundColor:
+                            _isDarkMode ? const Color(0xFF1F2937) : Colors.grey[300],
                         elevation: 0,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
@@ -558,9 +611,11 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: statusColor.withOpacity(0.08),
+        color: statusColor.withValues(alpha: _isDarkMode ? 0.16 : 0.08),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: statusColor.withOpacity(0.25)),
+        border: Border.all(
+          color: statusColor.withValues(alpha: _isDarkMode ? 0.35 : 0.25),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -625,7 +680,7 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
             text: TextSpan(
               style: GoogleFonts.plusJakartaSans(
                 fontSize: 12,
-                color: const Color(0xFF1C2434),
+                color: _bodyTextColor,
                 height: 1.35,
               ),
               children: [
@@ -651,17 +706,17 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
     required String value,
   }) {
     return Container(
-  constraints: const BoxConstraints(minHeight: 76),
+      constraints: const BoxConstraints(minHeight: 76),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _isDarkMode ? const Color(0xFF0B1120) : Colors.white,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE7ECF3)),
+        border: Border.all(color: _borderColor),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 17, color: const Color(0xFF0D4DB3)),
+          Icon(icon, size: 17, color: _blue),
           const SizedBox(width: 8),
           Expanded(
             child: Column(
@@ -672,7 +727,7 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 10,
                     fontWeight: FontWeight.w800,
-                    color: Colors.grey[500],
+                    color: _mutedTextColor,
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -683,7 +738,7 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 11,
                     fontWeight: FontWeight.w800,
-                    color: const Color(0xFF1C2434),
+                    color: _bodyTextColor,
                     height: 1.3,
                   ),
                 ),
@@ -704,14 +759,14 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
       width: double.infinity,
       padding: const EdgeInsets.all(13),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _isDarkMode ? const Color(0xFF0B1120) : Colors.white,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE7ECF3)),
+        border: Border.all(color: _borderColor),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 17, color: const Color(0xFF0D4DB3)),
+          Icon(icon, size: 17, color: _blue),
           const SizedBox(width: 9),
           Expanded(
             child: Column(
@@ -722,7 +777,7 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 10,
                     fontWeight: FontWeight.w900,
-                    color: Colors.grey[500],
+                    color: _mutedTextColor,
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -730,7 +785,7 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
                   text,
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 12,
-                    color: const Color(0xFF1C2434),
+                    color: _bodyTextColor,
                     fontWeight: FontWeight.w600,
                     height: 1.35,
                   ),
@@ -749,7 +804,7 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.10),
+        color: color.withValues(alpha: _isDarkMode ? 0.18 : 0.10),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
@@ -790,34 +845,35 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
 
     return SizedBox(
       width: 260,
-      child: Column(
+      child: ListView(
+        padding: EdgeInsets.zero,
         children: [
           _buildSummaryCard(
             icon: Icons.inbox_outlined,
             label: 'TOTAL REQUESTS',
             value: '${requests.length}',
-            color: const Color(0xFF0D4DB3),
+            color: _blue,
           ),
           const SizedBox(height: 14),
           _buildSummaryCard(
             icon: Icons.pending_actions_outlined,
             label: 'PENDING',
             value: '$pending',
-            color: const Color(0xFFF5A623),
+            color: _orange,
           ),
           const SizedBox(height: 14),
           _buildSummaryCard(
             icon: Icons.check_circle_outline_rounded,
             label: 'APPROVED',
             value: '$approved',
-            color: const Color(0xFF14A44D),
+            color: _green,
           ),
           const SizedBox(height: 14),
           _buildSummaryCard(
             icon: Icons.cancel_outlined,
             label: 'REJECTED',
             value: '$rejected',
-            color: const Color(0xFFC62828),
+            color: _red,
           ),
         ],
       ),
@@ -834,9 +890,9 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
       width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _cardColor,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFE7ECF3)),
+        border: Border.all(color: _borderColor),
       ),
       child: Row(
         children: [
@@ -844,7 +900,7 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
             width: 44,
             height: 44,
             decoration: BoxDecoration(
-              color: color.withOpacity(0.10),
+              color: color.withValues(alpha: _isDarkMode ? 0.18 : 0.10),
               borderRadius: BorderRadius.circular(14),
             ),
             child: Icon(icon, color: color),
@@ -859,7 +915,7 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 10,
                     fontWeight: FontWeight.w900,
-                    color: Colors.grey[500],
+                    color: _mutedTextColor,
                     letterSpacing: 0.7,
                   ),
                 ),
@@ -869,7 +925,7 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 26,
                     fontWeight: FontWeight.w900,
-                    color: const Color(0xFF1C2434),
+                    color: _pageTextColor,
                   ),
                 ),
               ],
@@ -890,14 +946,14 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
         width: 420,
         padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: _cardColor,
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: const Color(0xFFE7ECF3)),
+          border: Border.all(color: _borderColor),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 42, color: const Color(0xFF0D4DB3)),
+            Icon(icon, size: 42, color: _blue),
             const SizedBox(height: 12),
             Text(
               title,
@@ -905,7 +961,7 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
               style: GoogleFonts.plusJakartaSans(
                 fontSize: 16,
                 fontWeight: FontWeight.w900,
-                color: const Color(0xFF0A2351),
+                color: _pageTextColor,
               ),
             ),
             const SizedBox(height: 6),
@@ -914,11 +970,32 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
               textAlign: TextAlign.center,
               style: GoogleFonts.plusJakartaSans(
                 fontSize: 12,
-                color: Colors.grey[600],
+                color: _mutedTextColor,
                 height: 1.45,
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCountBadge(String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: _isDarkMode ? const Color(0xFF1F2937) : const Color(0xFFEAF1FF),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: _isDarkMode ? const Color(0xFF243244) : Colors.transparent,
+        ),
+      ),
+      child: Text(
+        label,
+        style: GoogleFonts.plusJakartaSans(
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+          color: _isDarkMode ? const Color(0xFF93C5FD) : _blue,
         ),
       ),
     );
@@ -929,18 +1006,28 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
       hintText: hint,
       hintStyle: GoogleFonts.plusJakartaSans(
         fontSize: 12,
-        color: Colors.grey[500],
+        color: _mutedTextColor,
       ),
       filled: true,
-      fillColor: const Color(0xFFF5F7FA),
-      suffixIcon: suffixIcon,
-      contentPadding: const EdgeInsets.symmetric(
-        horizontal: 13,
-        vertical: 13,
-      ),
+      fillColor: _inputColor,
+      suffixIcon: suffixIcon == null
+          ? null
+          : IconTheme(
+              data: IconThemeData(color: _mutedTextColor, size: 19),
+              child: suffixIcon,
+            ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 13, vertical: 13),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
         borderSide: BorderSide.none,
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: _borderColor),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: _blue, width: 1.4),
       ),
     );
   }
@@ -1015,11 +1102,11 @@ class _TimeRequestsScreenState extends State<TimeRequestsScreen> {
   Color _statusColor(TimeRequestStatus status) {
     switch (status) {
       case TimeRequestStatus.pending:
-        return const Color(0xFFF5A623);
+        return _orange;
       case TimeRequestStatus.approved:
-        return const Color(0xFF14A44D);
+        return _green;
       case TimeRequestStatus.rejected:
-        return const Color(0xFFC62828);
+        return _red;
     }
   }
 

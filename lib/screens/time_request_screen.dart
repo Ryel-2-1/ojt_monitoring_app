@@ -37,6 +37,37 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
 
   final int _selectedNavIndex = -1;
 
+  static const Color _blue = Color(0xFF0D4DB3);
+  static const Color _navy = Color(0xFF0A2351);
+  static const Color _green = Color(0xFF14A44D);
+  static const Color _red = Color(0xFFC62828);
+  static const Color _orange = Color(0xFFF5A623);
+
+  bool get _isDarkMode => AppServices.of(context).themeController.isDarkMode;
+
+  Color get _background =>
+      _isDarkMode ? const Color(0xFF0B1120) : const Color(0xFFF5F7FA);
+
+  Color get _cardColor =>
+      _isDarkMode ? const Color(0xFF0F172A) : Colors.white;
+
+  Color get _softCardColor =>
+      _isDarkMode ? const Color(0xFF111827) : const Color(0xFFF8FAFD);
+
+  Color get _inputColor =>
+      _isDarkMode ? const Color(0xFF0B1120) : const Color(0xFFF5F7FA);
+
+  Color get _borderColor =>
+      _isDarkMode ? const Color(0xFF243244) : const Color(0xFFE9EEF5);
+
+  Color get _titleColor =>
+      _isDarkMode ? Colors.white : const Color(0xFF1C2434);
+
+  Color get _headingColor => _isDarkMode ? Colors.white : _navy;
+
+  Color get _mutedColor =>
+      _isDarkMode ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280);
+
   @override
   void dispose() {
     _dateController.dispose();
@@ -53,6 +84,21 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
       initialDate: _requestDate ?? DateTime.now(),
       firstDate: DateTime(2024),
       lastDate: DateTime(2100),
+      builder: (context, child) {
+        if (!_isDarkMode) return child ?? const SizedBox.shrink();
+
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: _blue,
+              surface: Color(0xFF111827),
+              onSurface: Colors.white,
+            ),
+            dialogBackgroundColor: const Color(0xFF111827),
+          ),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
     );
 
     if (picked == null) return;
@@ -72,6 +118,21 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
     final picked = await showTimePicker(
       context: context,
       initialTime: _parseTimeOfDay(controller.text) ?? TimeOfDay.now(),
+      builder: (context, child) {
+        if (!_isDarkMode) return child ?? const SizedBox.shrink();
+
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: _blue,
+              surface: Color(0xFF111827),
+              onSurface: Colors.white,
+            ),
+            dialogBackgroundColor: const Color(0xFF111827),
+          ),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
     );
 
     if (picked == null) return;
@@ -434,7 +495,8 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final uid = AppServices.of(context).authService.currentUser?.uid;
+    final services = AppServices.of(context);
+    final uid = services.authService.currentUser?.uid;
 
     if (uid == null) {
       return const Scaffold(
@@ -442,53 +504,60 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
       );
     }
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFFF5F7FA),
-        elevation: 0,
-        title: Text(
-          'Time Requests',
-          style: GoogleFonts.plusJakartaSans(
-            fontWeight: FontWeight.w800,
-            color: const Color(0xFF0A2351),
-          ),
-        ),
-        iconTheme: const IconThemeData(color: Color(0xFF0A2351)),
-      ),
-      body: LayoutBuilder(
-  builder: (context, constraints) {
-    return SingleChildScrollView(
-      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          minHeight: constraints.maxHeight,
-        ),
-        child: Column(
-          children: [
-            _buildRequestFormCard(),
-            const SizedBox(height: 14),
-            SizedBox(
-              height: 420,
-              child: _buildRequestHistory(uid),
+    return AnimatedBuilder(
+      animation: services.themeController,
+      builder: (context, _) {
+        return Scaffold(
+          backgroundColor: _background,
+          appBar: AppBar(
+            backgroundColor: _background,
+            elevation: 0,
+            centerTitle: false,
+            title: Text(
+              'Time Requests',
+              style: GoogleFonts.plusJakartaSans(
+                fontWeight: FontWeight.w900,
+                color: _headingColor,
+              ),
             ),
-          ],
-        ),
-      ),
-    );
-  },
-),
-      bottomNavigationBar: _buildBottomNav(),
+            iconTheme: IconThemeData(color: _headingColor),
+          ),
+          body: LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minHeight: constraints.maxHeight,
+                  ),
+                  child: Column(
+                    children: [
+                      _buildRequestFormCard(),
+                      const SizedBox(height: 14),
+                      SizedBox(
+                        height: 430,
+                        child: _buildRequestHistory(uid),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+          bottomNavigationBar: _buildBottomNav(),
+        );
+      },
     );
   }
 
   Widget _buildRequestFormCard() {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _cardColor,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFE9EEF5)),
+        border: Border.all(color: _borderColor),
       ),
       child: Column(
         children: [
@@ -505,12 +574,12 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
                     width: 38,
                     height: 38,
                     decoration: BoxDecoration(
-                      color: const Color(0xFFEAF1FF),
+                      color: _blue.withValues(alpha: _isDarkMode ? 0.18 : 0.10),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: const Icon(
                       Icons.edit_calendar_outlined,
-                      color: Color(0xFF0D4DB3),
+                      color: _blue,
                       size: 20,
                     ),
                   ),
@@ -523,8 +592,8 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
                           'Request Time Adjustment',
                           style: GoogleFonts.plusJakartaSans(
                             fontSize: 14,
-                            fontWeight: FontWeight.w800,
-                            color: const Color(0xFF0A2351),
+                            fontWeight: FontWeight.w900,
+                            color: _headingColor,
                           ),
                         ),
                         const SizedBox(height: 2),
@@ -534,7 +603,7 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
                               : 'Tap to submit a new adjustment request.',
                           style: GoogleFonts.plusJakartaSans(
                             fontSize: 11,
-                            color: Colors.grey[600],
+                            color: _mutedColor,
                           ),
                         ),
                       ],
@@ -544,7 +613,7 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
                     _isFormExpanded
                         ? Icons.keyboard_arrow_up_rounded
                         : Icons.keyboard_arrow_down_rounded,
-                    color: const Color(0xFF0D4DB3),
+                    color: _blue,
                   ),
                 ],
               ),
@@ -556,7 +625,7 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
               child: _buildMessageText(),
             ),
           if (_isFormExpanded) ...[
-            const Divider(height: 1, color: Color(0xFFE9EEF5)),
+            Divider(height: 1, color: _borderColor),
             Padding(
               padding: const EdgeInsets.all(16),
               child: Form(
@@ -569,6 +638,7 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
                       controller: _dateController,
                       readOnly: true,
                       onTap: _pickDate,
+                      style: _inputTextStyle(),
                       decoration: _decor(
                         'Request Date',
                         suffixIcon: const Icon(Icons.calendar_today_outlined),
@@ -588,6 +658,7 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
                             controller: _startTimeController,
                             readOnly: true,
                             onTap: () => _pickTime(_startTimeController),
+                            style: _inputTextStyle(),
                             decoration: _decor(
                               _requestType == TimeRequestType.correction
                                   ? 'Corrected Start'
@@ -607,13 +678,13 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
                             controller: _endTimeController,
                             readOnly: true,
                             onTap: () => _pickTime(_endTimeController),
+                            style: _inputTextStyle(),
                             decoration: _decor(
                               _requestType == TimeRequestType.correction
                                   ? 'Corrected End'
                                   : 'End Time',
-                              suffixIcon: const Icon(
-                                Icons.hourglass_bottom_outlined,
-                              ),
+                              suffixIcon:
+                                  const Icon(Icons.hourglass_bottom_outlined),
                             ),
                             validator: (value) =>
                                 value == null || value.trim().isEmpty
@@ -627,6 +698,7 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
                     TextFormField(
                       controller: _reasonController,
                       maxLines: 2,
+                      style: _inputTextStyle(),
                       decoration: _decor(
                         _requestType == TimeRequestType.correction
                             ? 'Reason for correcting this log'
@@ -641,6 +713,7 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
                     TextFormField(
                       controller: _proofNoteController,
                       maxLines: 1,
+                      style: _inputTextStyle(),
                       decoration: _decor('Proof note / attachment reference'),
                     ),
                     const SizedBox(height: 12),
@@ -652,9 +725,9 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
                       child: ElevatedButton(
                         onPressed: _isSubmitting ? null : _submit,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF0D4DB3),
+                          backgroundColor: _blue,
                           foregroundColor: Colors.white,
-                          disabledBackgroundColor: Colors.grey[300],
+                          disabledBackgroundColor: Colors.grey[400],
                           elevation: 0,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
@@ -674,7 +747,7 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
                                     ? 'Submit Correction Request'
                                     : 'Submit Missing Time Request',
                                 style: GoogleFonts.plusJakartaSans(
-                                  fontWeight: FontWeight.w800,
+                                  fontWeight: FontWeight.w900,
                                 ),
                               ),
                       ),
@@ -693,8 +766,9 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
     return Container(
       padding: const EdgeInsets.all(5),
       decoration: BoxDecoration(
-        color: const Color(0xFFF5F7FA),
+        color: _inputColor,
         borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _borderColor),
       ),
       child: Row(
         children: [
@@ -738,13 +812,14 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
           await _loadSessionsForSelectedDate();
         }
       },
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
         padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 10),
         decoration: BoxDecoration(
-          color: active ? Colors.white : Colors.transparent,
+          color: active ? _cardColor : Colors.transparent,
           borderRadius: BorderRadius.circular(11),
           border: Border.all(
-            color: active ? const Color(0xFF0D4DB3) : Colors.transparent,
+            color: active ? _blue : Colors.transparent,
           ),
         ),
         child: Row(
@@ -753,7 +828,7 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
             Icon(
               icon,
               size: 17,
-              color: active ? const Color(0xFF0D4DB3) : Colors.grey[500],
+              color: active ? _blue : _mutedColor,
             ),
             const SizedBox(width: 7),
             Flexible(
@@ -763,8 +838,7 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
                 style: GoogleFonts.plusJakartaSans(
                   fontSize: 11,
                   fontWeight: FontWeight.w900,
-                  color:
-                      active ? const Color(0xFF0D4DB3) : Colors.grey[600],
+                  color: active ? _blue : _mutedColor,
                 ),
               ),
             ),
@@ -779,8 +853,9 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
       return _buildInlineNotice(
         icon: Icons.info_outline_rounded,
         title: 'Select a date first',
-        message: 'Existing attendance sessions will appear after selecting a date.',
-        color: const Color(0xFF0D4DB3),
+        message:
+            'Existing attendance sessions will appear after selecting a date.',
+        color: _blue,
       );
     }
 
@@ -789,8 +864,9 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
         width: double.infinity,
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: const Color(0xFFF5F7FA),
+          color: _inputColor,
           borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: _borderColor),
         ),
         child: Row(
           children: [
@@ -800,12 +876,14 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
               child: CircularProgressIndicator(strokeWidth: 2),
             ),
             const SizedBox(width: 10),
-            Text(
-              'Loading existing attendance sessions...',
-              style: GoogleFonts.plusJakartaSans(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: Colors.grey[700],
+            Expanded(
+              child: Text(
+                'Loading existing attendance sessions...',
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: _mutedColor,
+                ),
               ),
             ),
           ],
@@ -819,7 +897,7 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
         title: 'No sessions found',
         message:
             'There are no completed attendance sessions on this date to correct.',
-        color: const Color(0xFFF5A623),
+        color: _orange,
       );
     }
 
@@ -827,9 +905,9 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
       width: double.infinity,
       padding: const EdgeInsets.all(13),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFD),
+        color: _softCardColor,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE9EEF5)),
+        border: Border.all(color: _borderColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -839,7 +917,7 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
             style: GoogleFonts.plusJakartaSans(
               fontSize: 12,
               fontWeight: FontWeight.w900,
-              color: const Color(0xFF0A2351),
+              color: _headingColor,
             ),
           ),
           const SizedBox(height: 10),
@@ -864,13 +942,12 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
                 child: Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color:
-                        selected ? const Color(0xFFEAF1FF) : Colors.white,
+                    color: selected
+                        ? _blue.withValues(alpha: _isDarkMode ? 0.18 : 0.10)
+                        : _cardColor,
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                      color: selected
-                          ? const Color(0xFF0D4DB3)
-                          : const Color(0xFFE9EEF5),
+                      color: selected ? _blue : _borderColor,
                     ),
                   ),
                   child: Row(
@@ -879,9 +956,7 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
                         selected
                             ? Icons.radio_button_checked
                             : Icons.radio_button_off,
-                        color: selected
-                            ? const Color(0xFF0D4DB3)
-                            : Colors.grey[500],
+                        color: selected ? _blue : _mutedColor,
                         size: 18,
                       ),
                       const SizedBox(width: 10),
@@ -891,7 +966,7 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
                           style: GoogleFonts.plusJakartaSans(
                             fontSize: 12,
                             fontWeight: FontWeight.w900,
-                            color: const Color(0xFF1C2434),
+                            color: _titleColor,
                           ),
                         ),
                       ),
@@ -916,9 +991,11 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
       width: double.infinity,
       padding: const EdgeInsets.all(13),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
+        color: color.withValues(alpha: _isDarkMode ? 0.16 : 0.08),
         borderRadius: BorderRadius.circular(13),
-        border: Border.all(color: color.withOpacity(0.25)),
+        border: Border.all(
+          color: color.withValues(alpha: _isDarkMode ? 0.34 : 0.25),
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -943,7 +1020,7 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
-                    color: const Color(0xFF1C2434),
+                    color: _titleColor,
                     height: 1.35,
                   ),
                 ),
@@ -963,7 +1040,7 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(
-            child: CircularProgressIndicator(color: Color(0xFF0D4DB3)),
+            child: CircularProgressIndicator(color: _blue),
           );
         }
 
@@ -993,8 +1070,8 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
                   'Request History',
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                    color: const Color(0xFF0A2351),
+                    fontWeight: FontWeight.w900,
+                    color: _headingColor,
                   ),
                 ),
                 const Spacer(),
@@ -1002,15 +1079,15 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFEAF1FF),
+                    color: _blue.withValues(alpha: _isDarkMode ? 0.18 : 0.10),
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(
                     '${requests.length} total',
                     style: GoogleFonts.plusJakartaSans(
                       fontSize: 10,
-                      fontWeight: FontWeight.w800,
-                      color: const Color(0xFF0D4DB3),
+                      fontWeight: FontWeight.w900,
+                      color: _blue,
                     ),
                   ),
                 ),
@@ -1041,9 +1118,9 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _cardColor,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE9EEF5)),
+        border: Border.all(color: _borderColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1059,7 +1136,7 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
                 style: GoogleFonts.plusJakartaSans(
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
-                  color: Colors.grey[600],
+                  color: _mutedColor,
                 ),
               ),
             ],
@@ -1072,7 +1149,7 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
               icon: Icons.history_rounded,
               label: 'Original Time',
               value: '${item.originalStartTime} - ${item.originalEndTime}',
-              color: const Color(0xFFF5A623),
+              color: _orange,
             ),
             const SizedBox(height: 10),
           ],
@@ -1081,7 +1158,7 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
               const Icon(
                 Icons.schedule_rounded,
                 size: 16,
-                color: Color(0xFF0D4DB3),
+                color: _blue,
               ),
               const SizedBox(width: 6),
               Expanded(
@@ -1090,9 +1167,9 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
                       ? 'Corrected: ${item.requestedStartTime} - ${item.requestedEndTime}'
                       : '${item.requestedStartTime} - ${item.requestedEndTime}',
                   style: GoogleFonts.plusJakartaSans(
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w900,
                     fontSize: 14,
-                    color: const Color(0xFF1C2434),
+                    color: _titleColor,
                   ),
                 ),
               ),
@@ -1103,7 +1180,7 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
             item.reason,
             style: GoogleFonts.plusJakartaSans(
               fontSize: 12,
-              color: Colors.grey[700],
+              color: _mutedColor,
               height: 1.35,
             ),
           ),
@@ -1114,7 +1191,7 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
               label: 'Approved Time',
               value:
                   '${item.approvedStartTime ?? '-'} - ${item.approvedEndTime ?? '-'}',
-              color: const Color(0xFF14A44D),
+              color: _green,
             ),
           ],
           if (hasRemarks) ...[
@@ -1123,7 +1200,7 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
               icon: Icons.rate_review_outlined,
               label: 'Supervisor Remarks',
               value: item.reviewRemarks!,
-              color: const Color(0xFF0D4DB3),
+              color: _blue,
             ),
           ],
           if (hasReviewedBy || item.reviewedAt != null) ...[
@@ -1136,7 +1213,7 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
               ].join(' '),
               style: GoogleFonts.plusJakartaSans(
                 fontSize: 10,
-                color: Colors.grey[600],
+                color: _mutedColor,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -1148,13 +1225,12 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
 
   Widget _buildTypeBadge(TimeRequestType type) {
     final isCorrection = type == TimeRequestType.correction;
-    final color =
-        isCorrection ? const Color(0xFFF5A623) : const Color(0xFF0D4DB3);
+    final color = isCorrection ? _orange : _blue;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.10),
+        color: color.withValues(alpha: _isDarkMode ? 0.18 : 0.10),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
@@ -1178,8 +1254,11 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
       width: double.infinity,
       padding: const EdgeInsets.all(11),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
+        color: color.withValues(alpha: _isDarkMode ? 0.16 : 0.08),
         borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: color.withValues(alpha: _isDarkMode ? 0.26 : 0.14),
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1191,14 +1270,14 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
               text: TextSpan(
                 style: GoogleFonts.plusJakartaSans(
                   fontSize: 11,
-                  color: const Color(0xFF1C2434),
+                  color: _titleColor,
                   height: 1.35,
                 ),
                 children: [
                   TextSpan(
                     text: '$label: ',
                     style: TextStyle(
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w900,
                       color: color,
                     ),
                   ),
@@ -1218,14 +1297,14 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.10),
+        color: color.withValues(alpha: _isDarkMode ? 0.18 : 0.10),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
         _statusText(status),
         style: GoogleFonts.plusJakartaSans(
           fontSize: 10,
-          fontWeight: FontWeight.w800,
+          fontWeight: FontWeight.w900,
           color: color,
         ),
       ),
@@ -1244,23 +1323,15 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
         message.startsWith('End time') ||
         message.startsWith('Could not load');
 
-    final Color bgColor = isSuccess
-        ? const Color(0xFFE8F5E9)
-        : isOverlap
-            ? const Color(0xFFFFF8E1)
-            : const Color(0xFFFFEBEE);
-
     final Color borderColor = isSuccess
-        ? const Color(0xFF14A44D)
+        ? _green
         : isOverlap
-            ? const Color(0xFFF5A623)
-            : const Color(0xFFC62828);
+            ? _orange
+            : _red;
 
-    final Color textColor = isSuccess
-        ? const Color(0xFF1B5E20)
-        : isOverlap
-            ? const Color(0xFF7A4F00)
-            : const Color(0xFFC62828);
+    final Color bgColor = borderColor.withValues(
+      alpha: _isDarkMode ? 0.17 : 0.09,
+    );
 
     final IconData icon = isSuccess
         ? Icons.check_circle_outline_rounded
@@ -1281,7 +1352,7 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
         color: bgColor,
         borderRadius: BorderRadius.circular(13),
         border: Border.all(
-          color: borderColor.withOpacity(0.45),
+          color: borderColor.withValues(alpha: _isDarkMode ? 0.40 : 0.30),
         ),
       ),
       child: Row(
@@ -1302,7 +1373,7 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 12,
                     fontWeight: FontWeight.w900,
-                    color: textColor,
+                    color: borderColor,
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -1311,7 +1382,7 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
-                    color: textColor.withOpacity(0.90),
+                    color: _titleColor,
                     height: 1.35,
                   ),
                 ),
@@ -1329,19 +1400,26 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
     required String message,
   }) {
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(22),
+        decoration: BoxDecoration(
+          color: _cardColor,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: _borderColor),
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: const Color(0xFF0D4DB3), size: 34),
+            Icon(icon, color: _blue, size: 34),
             const SizedBox(height: 10),
             Text(
               title,
+              textAlign: TextAlign.center,
               style: GoogleFonts.plusJakartaSans(
                 fontSize: 14,
-                fontWeight: FontWeight.w800,
-                color: const Color(0xFF1C2434),
+                fontWeight: FontWeight.w900,
+                color: _titleColor,
               ),
             ),
             const SizedBox(height: 4),
@@ -1350,7 +1428,7 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
               textAlign: TextAlign.center,
               style: GoogleFonts.plusJakartaSans(
                 fontSize: 12,
-                color: Colors.grey[600],
+                color: _mutedColor,
                 height: 1.4,
               ),
             ),
@@ -1370,10 +1448,10 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
 
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
-      decoration: const BoxDecoration(
-        color: Colors.white,
+      decoration: BoxDecoration(
+        color: _cardColor,
         border: Border(
-          top: BorderSide(color: Color(0xFFE9EEF5)),
+          top: BorderSide(color: _borderColor),
         ),
       ),
       child: Row(
@@ -1392,19 +1470,15 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
                   Icon(
                     items[i].$1,
                     size: 22,
-                    color: active
-                        ? const Color(0xFF1A3A6B)
-                        : Colors.grey[400],
+                    color: active ? _blue : _mutedColor,
                   ),
                   const SizedBox(height: 3),
                   Text(
                     items[i].$2,
                     style: GoogleFonts.dmSans(
                       fontSize: 9,
-                      fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                      color: active
-                          ? const Color(0xFF1A3A6B)
-                          : Colors.grey[400],
+                      fontWeight: active ? FontWeight.w800 : FontWeight.w500,
+                      color: active ? _blue : _mutedColor,
                       letterSpacing: 0.5,
                     ),
                   ),
@@ -1422,27 +1496,52 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
       hintText: hint,
       hintStyle: GoogleFonts.plusJakartaSans(
         fontSize: 12,
-        color: Colors.grey[500],
+        color: _mutedColor,
       ),
       filled: true,
-      fillColor: const Color(0xFFF5F7FA),
+      fillColor: _inputColor,
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide.none,
+        borderSide: BorderSide(color: _borderColor),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: _borderColor),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: _blue, width: 1.4),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: _red, width: 1.2),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: _red, width: 1.4),
       ),
       suffixIcon: suffixIcon,
+      suffixIconColor: _mutedColor,
+    );
+  }
+
+  TextStyle _inputTextStyle() {
+    return GoogleFonts.plusJakartaSans(
+      fontSize: 13,
+      fontWeight: FontWeight.w700,
+      color: _titleColor,
     );
   }
 
   Color _statusColor(TimeRequestStatus status) {
     switch (status) {
       case TimeRequestStatus.pending:
-        return const Color(0xFFF5A623);
+        return _orange;
       case TimeRequestStatus.approved:
-        return const Color(0xFF14A44D);
+        return _green;
       case TimeRequestStatus.rejected:
-        return const Color(0xFFC62828);
+        return _red;
     }
   }
 

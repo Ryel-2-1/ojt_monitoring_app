@@ -14,6 +14,7 @@ class SystemLogsScreen extends StatefulWidget {
 
 class _SystemLogsScreenState extends State<SystemLogsScreen> {
   final TextEditingController _searchController = TextEditingController();
+
   String _searchQuery = '';
   String _selectedFilter = 'All Events';
 
@@ -22,6 +23,33 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
     'Clock-In Only',
     'Clock-Out Only',
   ];
+
+  bool get _isDarkMode => AppServices.of(context).themeController.isDarkMode;
+
+  Color get _pageTextColor =>
+      _isDarkMode ? Colors.white : const Color(0xFF0A2351);
+
+  Color get _cardColor =>
+      _isDarkMode ? const Color(0xFF0F172A) : Colors.white;
+
+  Color get _softCardColor =>
+      _isDarkMode ? const Color(0xFF111827) : const Color(0xFFF8FAFC);
+
+  Color get _inputColor =>
+      _isDarkMode ? const Color(0xFF0B1120) : Colors.white;
+
+  Color get _borderColor =>
+      _isDarkMode ? const Color(0xFF243244) : const Color(0xFFE7ECF3);
+
+  Color get _dividerColor =>
+      _isDarkMode ? const Color(0xFF1F2937) : const Color(0xFFF1F4F8);
+
+  Color get _mutedTextColor =>
+      _isDarkMode ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280);
+
+  static const Color _blue = Color(0xFF0D4DB3);
+  static const Color _green = Color(0xFF14A44D);
+  static const Color _red = Color(0xFFC62828);
 
   @override
   void dispose() {
@@ -34,143 +62,158 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
     final attendanceRepo = AppServices.of(context).attendanceRepository;
     final userRepo = AppServices.of(context).userRepository;
 
-    return Padding(
-      padding: const EdgeInsets.all(28),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildTopBar(),
-          const SizedBox(height: 22),
-          Expanded(
-            child: StreamBuilder<List<UserModel>>(
-              stream: userRepo.streamInternUsers(),
-              builder: (context, userSnapshot) {
-                if (userSnapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                if (userSnapshot.hasError) {
-                  return Center(
-                    child: Text(
-                      'Failed to load users: ${userSnapshot.error}',
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 13,
-                        color: Colors.red[700],
-                      ),
-                    ),
-                  );
-                }
-
-                final users = userSnapshot.data ?? [];
-                final userMap = {
-                  for (final user in users) user.uid: user,
-                };
-
-                return StreamBuilder<List<AttendanceModel>>(
-                  stream: attendanceRepo.streamAllAttendanceLogs(),
-                  builder: (context, logSnapshot) {
-                    if (logSnapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-
-                    if (logSnapshot.hasError) {
-                      return Center(
-                        child: Text(
-                          'Failed to load logs: ${logSnapshot.error}',
-                          style: GoogleFonts.plusJakartaSans(
-                            fontSize: 13,
-                            color: Colors.red[700],
-                          ),
-                        ),
+    return AnimatedBuilder(
+      animation: AppServices.of(context).themeController,
+      builder: (context, _) {
+        return Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildTopBar(),
+              const SizedBox(height: 22),
+              Expanded(
+                child: StreamBuilder<List<UserModel>>(
+                  stream: userRepo.streamInternUsers(),
+                  builder: (context, userSnapshot) {
+                    if (userSnapshot.connectionState ==
+                        ConnectionState.waiting) {
+                      return const Center(
+                        child: CircularProgressIndicator(color: _blue),
                       );
                     }
 
-                    final allLogs = logSnapshot.data ?? [];
+                    if (userSnapshot.hasError) {
+                      return _buildStateCard(
+                        icon: Icons.error_outline_rounded,
+                        title: 'Failed to load users',
+                        message: '${userSnapshot.error}',
+                      );
+                    }
 
-                    final filteredLogs = allLogs.where((log) {
-                      if (_selectedFilter == 'Clock-In Only' &&
-                          log.status != AttendanceStatus.clockIn) {
-                        return false;
-                      }
+                    final users = userSnapshot.data ?? [];
+                    final userMap = {
+                      for (final user in users) user.uid: user,
+                    };
 
-                      if (_selectedFilter == 'Clock-Out Only' &&
-                          log.status != AttendanceStatus.clockOut) {
-                        return false;
-                      }
+                    return StreamBuilder<List<AttendanceModel>>(
+                      stream: attendanceRepo.streamAllAttendanceLogs(),
+                      builder: (context, logSnapshot) {
+                        if (logSnapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return const Center(
+                            child: CircularProgressIndicator(color: _blue),
+                          );
+                        }
 
-                      final user = userMap[log.uid];
-                      final fullName = user?.fullName.toLowerCase() ?? '';
-                      final email = user?.email.toLowerCase() ?? '';
-                      final q = _searchQuery.trim().toLowerCase();
+                        if (logSnapshot.hasError) {
+                          return _buildStateCard(
+                            icon: Icons.error_outline_rounded,
+                            title: 'Failed to load logs',
+                            message: '${logSnapshot.error}',
+                          );
+                        }
 
-                      if (q.isEmpty) return true;
+                        final allLogs = logSnapshot.data ?? [];
+                        final filteredLogs = _applyFilters(allLogs, userMap);
 
-                      return fullName.contains(q) ||
-                          email.contains(q) ||
-                          log.uid.toLowerCase().contains(q) ||
-                         _statusText(log.status).toLowerCase().contains(q);
-                    }).toList();
+                        final totalLogs = filteredLogs.length;
+                        final totalClockIns = filteredLogs
+                            .where((log) =>
+                                log.status == AttendanceStatus.clockIn)
+                            .length;
+                        final totalClockOuts = filteredLogs
+                            .where((log) =>
+                                log.status == AttendanceStatus.clockOut)
+                            .length;
 
-                    final totalLogs = filteredLogs.length;
-                    final totalClockIns = filteredLogs
-                        .where((e) => e.status == AttendanceStatus.clockIn)
-                        .length;
-                    final totalClockOuts = filteredLogs
-                        .where((e) => e.status == AttendanceStatus.clockOut)
-                        .length;
-
-                    return Column(
-                      children: [
-                        Row(
+                        return Column(
                           children: [
-                            Expanded(
-                              child: _buildSummaryCard(
-                                title: 'TOTAL EVENTS',
-                                value: '$totalLogs',
-                                icon: Icons.receipt_long_rounded,
-                              ),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _buildSummaryCard(
+                                    title: 'TOTAL EVENTS',
+                                    value: '$totalLogs',
+                                    icon: Icons.receipt_long_rounded,
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: _buildSummaryCard(
+                                    title: 'CLOCK-INS',
+                                    value: '$totalClockIns',
+                                    icon: Icons.login_rounded,
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: _buildSummaryCard(
+                                    title: 'CLOCK-OUTS',
+                                    value: '$totalClockOuts',
+                                    icon: Icons.logout_rounded,
+                                  ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(width: 14),
+                            const SizedBox(height: 18),
                             Expanded(
-                              child: _buildSummaryCard(
-                                title: 'CLOCK-INS',
-                                value: '$totalClockIns',
-                                icon: Icons.login_rounded,
-                              ),
-                            ),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: _buildSummaryCard(
-                                title: 'CLOCK-OUTS',
-                                value: '$totalClockOuts',
-                                icon: Icons.logout_rounded,
-                              ),
+                              child: _buildLogsTable(filteredLogs, userMap),
                             ),
                           ],
-                        ),
-                        const SizedBox(height: 18),
-                        Expanded(
-                          child: _buildLogsTable(filteredLogs, userMap),
-                        ),
-                      ],
+                        );
+                      },
                     );
                   },
-                );
-              },
-            ),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
+  }
+
+  List<AttendanceModel> _applyFilters(
+    List<AttendanceModel> logs,
+    Map<String, UserModel> userMap,
+  ) {
+    return logs.where((log) {
+      if (_selectedFilter == 'Clock-In Only' &&
+          log.status != AttendanceStatus.clockIn) {
+        return false;
+      }
+
+      if (_selectedFilter == 'Clock-Out Only' &&
+          log.status != AttendanceStatus.clockOut) {
+        return false;
+      }
+
+      final user = userMap[log.uid];
+      final fullName = user?.fullName.toLowerCase() ?? '';
+      final email = user?.email.toLowerCase() ?? '';
+      final q = _searchQuery.trim().toLowerCase();
+
+      if (q.isEmpty) return true;
+
+      return fullName.contains(q) ||
+          email.contains(q) ||
+          log.uid.toLowerCase().contains(q) ||
+          _statusText(log.status).toLowerCase().contains(q);
+    }).toList();
   }
 
   Widget _buildTopBar() {
     return Row(
       children: [
         SizedBox(
-          width: 320,
+          width: 360,
           child: TextField(
             controller: _searchController,
+            style: GoogleFonts.plusJakartaSans(
+              color: _pageTextColor,
+              fontWeight: FontWeight.w600,
+            ),
             onChanged: (value) {
               setState(() => _searchQuery = value);
             },
@@ -178,19 +221,27 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
               hintText: 'Search logs by student, email, uid...',
               hintStyle: GoogleFonts.plusJakartaSans(
                 fontSize: 13,
-                color: Colors.grey[500],
+                color: _mutedTextColor,
               ),
-              prefixIcon: Icon(Icons.search, size: 20, color: Colors.grey[500]),
+              prefixIcon: Icon(
+                Icons.search,
+                size: 20,
+                color: _mutedTextColor,
+              ),
               filled: true,
-              fillColor: Colors.white,
+              fillColor: _inputColor,
               contentPadding: const EdgeInsets.symmetric(vertical: 0),
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: const BorderSide(color: Color(0xFFE7ECF3)),
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: _borderColor),
               ),
               enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: const BorderSide(color: Color(0xFFE7ECF3)),
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: _borderColor),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: _blue, width: 1.4),
               ),
             ),
           ),
@@ -200,33 +251,45 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
           'FILTER:',
           style: GoogleFonts.plusJakartaSans(
             fontSize: 11,
-            fontWeight: FontWeight.w700,
-            color: Colors.grey[500],
+            fontWeight: FontWeight.w800,
+            color: _mutedTextColor,
             letterSpacing: 0.8,
           ),
         ),
         const SizedBox(width: 10),
-        DropdownButtonHideUnderline(
-          child: DropdownButton<String>(
-            value: _selectedFilter,
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: _isDarkMode ? const Color(0xFF111827) : Colors.white,
             borderRadius: BorderRadius.circular(12),
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: const Color(0xFF0A2351),
+            border: Border.all(color: _borderColor),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: _selectedFilter,
+              dropdownColor: _cardColor,
+              borderRadius: BorderRadius.circular(12),
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: _pageTextColor,
+              ),
+              icon: Icon(
+                Icons.keyboard_arrow_down_rounded,
+                color: _mutedTextColor,
+              ),
+              items: _filters.map((item) {
+                return DropdownMenuItem<String>(
+                  value: item,
+                  child: Text(item),
+                );
+              }).toList(),
+              onChanged: (value) {
+                if (value != null) {
+                  setState(() => _selectedFilter = value);
+                }
+              },
             ),
-            icon: const Icon(Icons.keyboard_arrow_down_rounded),
-            items: _filters.map((item) {
-              return DropdownMenuItem<String>(
-                value: item,
-                child: Text(item),
-              );
-            }).toList(),
-            onChanged: (value) {
-              if (value != null) {
-                setState(() => _selectedFilter = value);
-              }
-            },
           ),
         ),
         const Spacer(),
@@ -234,8 +297,8 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
           'System Logs',
           style: GoogleFonts.plusJakartaSans(
             fontSize: 28,
-            fontWeight: FontWeight.w800,
-            color: const Color(0xFF0A2351),
+            fontWeight: FontWeight.w900,
+            color: _pageTextColor,
           ),
         ),
       ],
@@ -250,9 +313,9 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _cardColor,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE7ECF3)),
+        border: Border.all(color: _borderColor),
       ),
       child: Row(
         children: [
@@ -260,10 +323,11 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
             width: 42,
             height: 42,
             decoration: BoxDecoration(
-              color: const Color(0xFFEAF2FF),
+              color:
+                  _isDarkMode ? const Color(0xFF1F2937) : const Color(0xFFEAF2FF),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(icon, color: const Color(0xFF0D4DB3)),
+            child: Icon(icon, color: _blue),
           ),
           const SizedBox(width: 14),
           Column(
@@ -273,8 +337,8 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
                 title,
                 style: GoogleFonts.plusJakartaSans(
                   fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.grey[500],
+                  fontWeight: FontWeight.w800,
+                  color: _mutedTextColor,
                   letterSpacing: 0.5,
                 ),
               ),
@@ -283,8 +347,8 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
                 value,
                 style: GoogleFonts.plusJakartaSans(
                   fontSize: 24,
-                  fontWeight: FontWeight.w800,
-                  color: const Color(0xFF0A2351),
+                  fontWeight: FontWeight.w900,
+                  color: _pageTextColor,
                 ),
               ),
             ],
@@ -302,34 +366,27 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
       width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _cardColor,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFE7ECF3)),
+        border: Border.all(color: _borderColor),
       ),
       child: Column(
         children: [
           _buildTableHeader(),
           const SizedBox(height: 12),
-          const Divider(height: 1, color: Color(0xFFE7ECF3)),
+          Divider(height: 1, color: _dividerColor),
           const SizedBox(height: 8),
           Expanded(
             child: logs.isEmpty
-                ? Center(
-                    child: Text(
-                      'No logs found.',
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 13,
-                        color: Colors.grey[500],
-                      ),
-                    ),
-                  )
+                ? _buildEmptyLogs()
                 : ListView.separated(
                     itemCount: logs.length,
                     separatorBuilder: (_, __) =>
-                        const Divider(height: 18, color: Color(0xFFF1F4F8)),
+                        Divider(height: 18, color: _dividerColor),
                     itemBuilder: (context, index) {
                       final log = logs[index];
                       final user = userMap[log.uid];
+
                       return _buildLogRow(log, user);
                     },
                   ),
@@ -342,8 +399,8 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
   Widget _buildTableHeader() {
     final style = GoogleFonts.plusJakartaSans(
       fontSize: 11,
-      fontWeight: FontWeight.w700,
-      color: Colors.grey[600],
+      fontWeight: FontWeight.w800,
+      color: _mutedTextColor,
       letterSpacing: 0.5,
     );
 
@@ -360,8 +417,7 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
 
   Widget _buildLogRow(AttendanceModel log, UserModel? user) {
     final isClockIn = log.status == AttendanceStatus.clockIn;
-    final badgeColor =
-        isClockIn ? const Color(0xFF14A44D) : const Color(0xFFC62828);
+    final badgeColor = isClockIn ? _green : _red;
 
     final locationText = log.locationCoords == null
         ? 'No coordinates'
@@ -376,13 +432,15 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
             children: [
               CircleAvatar(
                 radius: 18,
-                backgroundColor: const Color(0xFFE8F0FF),
+                backgroundColor: _isDarkMode
+                    ? const Color(0xFF1F2937)
+                    : const Color(0xFFE8F0FF),
                 child: Text(
                   _initialsOf(user?.fullName ?? 'Unknown User'),
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: const Color(0xFF0D4DB3),
+                    fontWeight: FontWeight.w800,
+                    color: _blue,
                   ),
                 ),
               ),
@@ -393,18 +451,22 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
                   children: [
                     Text(
                       user?.fullName ?? 'Unknown User',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.plusJakartaSans(
                         fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: const Color(0xFF1C2434),
+                        fontWeight: FontWeight.w800,
+                        color: _pageTextColor,
                       ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       user?.email ?? 'No email',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.plusJakartaSans(
                         fontSize: 11,
-                        color: Colors.grey[600],
+                        color: _mutedTextColor,
                       ),
                     ),
                   ],
@@ -420,14 +482,14 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
-                color: badgeColor.withOpacity(0.10),
+                color: badgeColor.withValues(alpha: _isDarkMode ? 0.18 : 0.10),
                 borderRadius: BorderRadius.circular(999),
               ),
               child: Text(
                 _statusText(log.status),
                 style: GoogleFonts.plusJakartaSans(
                   fontSize: 10,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w800,
                   color: badgeColor,
                 ),
               ),
@@ -440,7 +502,8 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
             _formatDateTime(log.timestamp),
             style: GoogleFonts.plusJakartaSans(
               fontSize: 12,
-              color: Colors.grey[700],
+              color: _mutedTextColor,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ),
@@ -448,9 +511,12 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
           flex: 3,
           child: Text(
             locationText,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
             style: GoogleFonts.plusJakartaSans(
               fontSize: 12,
-              color: Colors.grey[700],
+              color: _mutedTextColor,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ),
@@ -458,28 +524,101 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
           flex: 3,
           child: Text(
             log.uid,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: GoogleFonts.plusJakartaSans(
               fontSize: 11,
-              color: Colors.grey[600],
+              color: _mutedTextColor,
             ),
           ),
         ),
       ],
     );
   }
-  String _statusText(AttendanceStatus status) {
-  switch (status) {
-    case AttendanceStatus.clockIn:
-      return 'Clock-In';
-    case AttendanceStatus.clockOut:
-      return 'Clock-Out';
+
+  Widget _buildEmptyLogs() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.history_rounded,
+            size: 42,
+            color: _mutedTextColor,
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'No logs found.',
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 13,
+              color: _mutedTextColor,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
   }
-}
+
+  Widget _buildStateCard({
+    required IconData icon,
+    required String title,
+    required String message,
+  }) {
+    return Center(
+      child: Container(
+        width: 460,
+        padding: const EdgeInsets.all(26),
+        decoration: BoxDecoration(
+          color: _cardColor,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: _borderColor),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 46, color: _blue),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 17,
+                fontWeight: FontWeight.w900,
+                color: _pageTextColor,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: GoogleFonts.plusJakartaSans(
+                fontSize: 12,
+                color: _mutedTextColor,
+                height: 1.45,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _statusText(AttendanceStatus status) {
+    switch (status) {
+      case AttendanceStatus.clockIn:
+        return 'Clock-In';
+      case AttendanceStatus.clockOut:
+        return 'Clock-Out';
+    }
+  }
 
   String _initialsOf(String name) {
     final parts = name.trim().split(RegExp(r'\s+'));
+
     if (parts.isEmpty || parts.first.isEmpty) return 'U';
     if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
+
     return (parts.first.substring(0, 1) + parts.last.substring(0, 1))
         .toUpperCase();
   }
@@ -488,6 +627,7 @@ class _SystemLogsScreenState extends State<SystemLogsScreen> {
     final hour = dateTime.hour % 12 == 0 ? 12 : dateTime.hour % 12;
     final minute = dateTime.minute.toString().padLeft(2, '0');
     final suffix = dateTime.hour >= 12 ? 'PM' : 'AM';
+
     return '${dateTime.month}/${dateTime.day}/${dateTime.year} $hour:$minute $suffix';
   }
 }

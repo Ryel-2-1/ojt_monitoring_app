@@ -65,6 +65,27 @@ class _TimerScreenState extends State<TimerScreen>
 
   final int _selectedNavIndex = 1;
 
+  bool get _isDarkMode => AppServices.of(context).themeController.isDarkMode;
+
+  Color get _background =>
+      _isDarkMode ? const Color(0xFF0B1120) : const Color(0xFFF5F7FA);
+
+  Color get _cardColor => _isDarkMode ? const Color(0xFF0F172A) : Colors.white;
+
+  Color get _softCardColor =>
+      _isDarkMode ? const Color(0xFF111827) : const Color(0xFFF7F9FC);
+
+  Color get _borderColor =>
+      _isDarkMode ? const Color(0xFF243244) : const Color(0xFFE9EEF5);
+
+  Color get _titleColor => _isDarkMode ? Colors.white : const Color(0xFF111827);
+
+  Color get _headingColor =>
+      _isDarkMode ? Colors.white : const Color(0xFF1A3A6B);
+
+  Color get _mutedColor =>
+      _isDarkMode ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280);
+
   @override
   void initState() {
     super.initState();
@@ -343,7 +364,7 @@ class _TimerScreenState extends State<TimerScreen>
         Geolocator.getPositionStream(
           locationSettings: const LocationSettings(
             accuracy: LocationAccuracy.high,
-            distanceFilter: 5,
+            distanceFilter: 15,
           ),
         ).listen((Position position) async {
           try {
@@ -935,51 +956,58 @@ class _TimerScreenState extends State<TimerScreen>
     final bool geofenceReady =
         _targetLat != null && _targetLng != null && _allowedRadius != null;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildTopBar(),
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (_showGeofenceWarning) ...[
-                      _buildGeofenceWarningCard(),
-                      const SizedBox(height: 16),
-                    ],
-                    _buildAssignmentCard(),
-                    const SizedBox(height: 16),
-                    _buildOjtHoursCard(),
-                    const SizedBox(height: 20),
-                    _buildTimerRing(),
-                    const SizedBox(height: 24),
-                    _buildActionButtons(geofenceReady),
-                    const SizedBox(height: 20),
-                    if (_errorMessage != null || _statusMessage != null)
-                      _buildStatusBanner(),
-                    _buildSpatialAwarenessCard(geofenceReady),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Logs and spatial coordinates are securely recorded server-side for institutional compliance. Tampering with session data is prohibited.',
-                      textAlign: TextAlign.center,
-                      style: GoogleFonts.dmSans(
-                        fontSize: 11,
-                        color: Colors.grey[400],
-                        height: 1.5,
-                      ),
+    final themeController = AppServices.of(context).themeController;
+
+    return AnimatedBuilder(
+      animation: themeController,
+      builder: (context, _) {
+        return Scaffold(
+          backgroundColor: _background,
+          body: SafeArea(
+            child: Column(
+              children: [
+                _buildTopBar(),
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (_showGeofenceWarning) ...[
+                          _buildGeofenceWarningCard(),
+                          const SizedBox(height: 16),
+                        ],
+                        _buildAssignmentCard(),
+                        const SizedBox(height: 16),
+                        _buildOjtHoursCard(),
+                        const SizedBox(height: 20),
+                        _buildTimerRing(),
+                        const SizedBox(height: 24),
+                        _buildActionButtons(geofenceReady),
+                        const SizedBox(height: 20),
+                        if (_errorMessage != null || _statusMessage != null)
+                          _buildStatusBanner(),
+                        _buildSpatialAwarenessCard(geofenceReady),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Logs and spatial coordinates are securely recorded server-side for institutional compliance. Tampering with session data is prohibited.',
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.dmSans(
+                            fontSize: 11,
+                            color: _mutedColor,
+                            height: 1.5,
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
-              ),
+                _buildBottomNav(),
+              ],
             ),
-            _buildBottomNav(),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -992,7 +1020,7 @@ class _TimerScreenState extends State<TimerScreen>
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      color: const Color(0xFFF5F7FA),
+      color: _background,
       child: Row(
         children: [
           Container(
@@ -1019,7 +1047,7 @@ class _TimerScreenState extends State<TimerScreen>
             style: GoogleFonts.dmSans(
               fontSize: 15,
               fontWeight: FontWeight.w700,
-              color: const Color(0xFF1A3A6B),
+              color: _headingColor,
             ),
           ),
         ],
@@ -1037,7 +1065,7 @@ class _TimerScreenState extends State<TimerScreen>
         border: Border.all(color: const Color(0xFFFF9800), width: 1.4),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFFFF9800).withOpacity(0.12),
+            color: const Color(0xFFFF9800).withValues(alpha: 0.12),
             blurRadius: 18,
             offset: const Offset(0, 6),
           ),
@@ -1102,14 +1130,16 @@ class _TimerScreenState extends State<TimerScreen>
       width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _cardColor,
         borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _borderColor),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
+          if (!_isDarkMode)
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
+            ),
         ],
       ),
       child: Row(
@@ -1118,7 +1148,9 @@ class _TimerScreenState extends State<TimerScreen>
             width: 46,
             height: 46,
             decoration: BoxDecoration(
-              color: const Color(0xFFEAF1FB),
+              color: _isDarkMode
+                  ? const Color(0xFF1E293B)
+                  : const Color(0xFFEAF1FB),
               borderRadius: BorderRadius.circular(14),
             ),
             child: const Icon(
@@ -1133,10 +1165,7 @@ class _TimerScreenState extends State<TimerScreen>
               children: [
                 Text(
                   'Assigned Geofence',
-                  style: GoogleFonts.dmSans(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                  ),
+                  style: GoogleFonts.dmSans(fontSize: 12, color: _mutedColor),
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -1146,7 +1175,7 @@ class _TimerScreenState extends State<TimerScreen>
                   style: GoogleFonts.dmSans(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
-                    color: const Color(0xFF1A3A6B),
+                    color: _headingColor,
                   ),
                 ),
               ],
@@ -1156,7 +1185,9 @@ class _TimerScreenState extends State<TimerScreen>
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                color: const Color(0xFFEAF7EE),
+                color: _isDarkMode
+                    ? const Color(0xFF052E1A)
+                    : const Color(0xFFEAF7EE),
                 borderRadius: BorderRadius.circular(999),
               ),
               child: Text(
@@ -1185,14 +1216,16 @@ class _TimerScreenState extends State<TimerScreen>
       width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _cardColor,
         borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _borderColor),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
+          if (!_isDarkMode)
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
+            ),
         ],
       ),
       child: Column(
@@ -1203,7 +1236,7 @@ class _TimerScreenState extends State<TimerScreen>
             style: GoogleFonts.dmSans(
               fontSize: 14,
               fontWeight: FontWeight.w700,
-              color: const Color(0xFF1A3A6B),
+              color: _headingColor,
             ),
           ),
           const SizedBox(height: 12),
@@ -1213,7 +1246,7 @@ class _TimerScreenState extends State<TimerScreen>
                 child: _buildMiniStat(
                   label: 'Required',
                   value: '$required hrs',
-                  color: const Color(0xFF1A3A6B),
+                  color: _headingColor,
                 ),
               ),
               const SizedBox(width: 12),
@@ -1240,14 +1273,16 @@ class _TimerScreenState extends State<TimerScreen>
             child: LinearProgressIndicator(
               minHeight: 10,
               value: progress,
-              backgroundColor: const Color(0xFFE8EDF5),
+              backgroundColor: _isDarkMode
+                  ? const Color(0xFF1F2937)
+                  : const Color(0xFFE8EDF5),
               valueColor: const AlwaysStoppedAnimation(Color(0xFF1A3A6B)),
             ),
           ),
           const SizedBox(height: 8),
           Text(
             '${(progress * 100).toStringAsFixed(1)}% completed',
-            style: GoogleFonts.dmSans(fontSize: 12, color: Colors.grey[600]),
+            style: GoogleFonts.dmSans(fontSize: 12, color: _mutedColor),
           ),
         ],
       ),
@@ -1262,7 +1297,7 @@ class _TimerScreenState extends State<TimerScreen>
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFFF7F9FC),
+        color: _softCardColor,
         borderRadius: BorderRadius.circular(14),
       ),
       child: Column(
@@ -1270,7 +1305,7 @@ class _TimerScreenState extends State<TimerScreen>
         children: [
           Text(
             label,
-            style: GoogleFonts.dmSans(fontSize: 11, color: Colors.grey[600]),
+            style: GoogleFonts.dmSans(fontSize: 11, color: _mutedColor),
           ),
           const SizedBox(height: 6),
           Text(
@@ -1295,6 +1330,9 @@ class _TimerScreenState extends State<TimerScreen>
             painter: _RingPainter(
               progress: _ringAnimation.value,
               active: _isClockedIn,
+              baseColor: _isDarkMode
+                  ? const Color(0xFF1F2937)
+                  : const Color(0xFFE8EDF5),
             ),
             child: SizedBox(
               width: 240,
@@ -1320,7 +1358,7 @@ class _TimerScreenState extends State<TimerScreen>
                       style: GoogleFonts.dmSans(
                         fontSize: 32,
                         fontWeight: FontWeight.w800,
-                        color: const Color(0xFF111827),
+                        color: _titleColor,
                       ),
                     ),
                   ],
@@ -1346,7 +1384,9 @@ class _TimerScreenState extends State<TimerScreen>
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF1A3A6B),
                 foregroundColor: Colors.white,
-                disabledBackgroundColor: Colors.grey[300],
+                disabledBackgroundColor: _isDarkMode
+                    ? const Color(0xFF374151)
+                    : Colors.grey[300],
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
                 ),
@@ -1379,7 +1419,7 @@ class _TimerScreenState extends State<TimerScreen>
               style: OutlinedButton.styleFrom(
                 foregroundColor: const Color(0xFFC62828),
                 side: BorderSide(color: Colors.red.shade200),
-                disabledForegroundColor: Colors.grey[400],
+                disabledForegroundColor: _mutedColor,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
                 ),
@@ -1407,8 +1447,8 @@ class _TimerScreenState extends State<TimerScreen>
   Widget _buildStatusBanner() {
     final bool isError = _errorMessage != null;
     final Color bg = isError
-        ? const Color(0xFFFFEBEE)
-        : const Color(0xFFE8F5E9);
+        ? (_isDarkMode ? const Color(0xFF3F1111) : const Color(0xFFFFEBEE))
+        : (_isDarkMode ? const Color(0xFF052E1A) : const Color(0xFFE8F5E9));
     final Color fg = isError
         ? const Color(0xFFC62828)
         : const Color(0xFF2E7D32);
@@ -1448,14 +1488,16 @@ class _TimerScreenState extends State<TimerScreen>
       width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _cardColor,
         borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _borderColor),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
+          if (!_isDarkMode)
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
+            ),
         ],
       ),
       child: Row(
@@ -1464,7 +1506,9 @@ class _TimerScreenState extends State<TimerScreen>
             width: 46,
             height: 46,
             decoration: BoxDecoration(
-              color: const Color(0xFFEAF1FB),
+              color: _isDarkMode
+                  ? const Color(0xFF1E293B)
+                  : const Color(0xFFEAF1FB),
               borderRadius: BorderRadius.circular(14),
             ),
             child: const Icon(
@@ -1482,7 +1526,7 @@ class _TimerScreenState extends State<TimerScreen>
                   style: GoogleFonts.dmSans(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
-                    color: const Color(0xFF1A3A6B),
+                    color: _headingColor,
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -1493,7 +1537,7 @@ class _TimerScreenState extends State<TimerScreen>
                   style: GoogleFonts.dmSans(
                     fontSize: 12,
                     height: 1.5,
-                    color: Colors.grey[600],
+                    color: _mutedColor,
                   ),
                 ),
               ],
@@ -1514,9 +1558,9 @@ class _TimerScreenState extends State<TimerScreen>
 
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 18),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: Color(0xFFE9EEF5))),
+      decoration: BoxDecoration(
+        color: _cardColor,
+        border: Border(top: BorderSide(color: _borderColor)),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -1534,7 +1578,7 @@ class _TimerScreenState extends State<TimerScreen>
                   Icon(
                     items[i].$1,
                     size: 20,
-                    color: active ? const Color(0xFF0D4DB3) : Colors.grey[400],
+                    color: active ? const Color(0xFF0D4DB3) : _mutedColor,
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -1542,9 +1586,7 @@ class _TimerScreenState extends State<TimerScreen>
                     style: GoogleFonts.dmSans(
                       fontSize: 9,
                       fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                      color: active
-                          ? const Color(0xFF0D4DB3)
-                          : Colors.grey[400],
+                      color: active ? const Color(0xFF0D4DB3) : _mutedColor,
                       letterSpacing: 0.6,
                     ),
                   ),
@@ -1561,8 +1603,13 @@ class _TimerScreenState extends State<TimerScreen>
 class _RingPainter extends CustomPainter {
   final double progress;
   final bool active;
+  final Color baseColor;
 
-  _RingPainter({required this.progress, required this.active});
+  _RingPainter({
+    required this.progress,
+    required this.active,
+    required this.baseColor,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1570,7 +1617,7 @@ class _RingPainter extends CustomPainter {
     final radius = math.min(size.width, size.height) / 2;
 
     final basePaint = Paint()
-      ..color = const Color(0xFFE8EDF5)
+      ..color = baseColor
       ..style = PaintingStyle.stroke
       ..strokeWidth = 14
       ..strokeCap = StrokeCap.round;

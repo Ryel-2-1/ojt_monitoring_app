@@ -1,13 +1,12 @@
-// lib/main.dart
-
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:flutter/foundation.dart'
-    show TargetPlatform, defaultTargetPlatform, kIsWeb;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'firebase_options.dart';
+
 
 import 'models/user_model.dart';
+
 import 'repositories/attendance_repository.dart';
 import 'repositories/company_repository.dart';
 import 'repositories/enrollment_repository.dart';
@@ -16,73 +15,50 @@ import 'repositories/role_repository.dart';
 import 'repositories/student_repository.dart';
 import 'repositories/time_request_repository.dart';
 import 'repositories/user_repository.dart';
+
 import 'screens/admin_dashboard_layout.dart';
 import 'screens/intern_home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/web_login_screen.dart';
-import 'screens/web_unauthorized_screen.dart';
+
 import 'services/auth_service.dart';
 import 'services/offline_attendance_queue_service.dart';
-
-const FirebaseOptions _webFirebaseOptions = FirebaseOptions(
-  apiKey: 'AIzaSyByaNJZjhXfedXhs-71GjazPYhegb36bBM',
-  authDomain: 'ojt-monitoring-system-44070.firebaseapp.com',
-  projectId: 'ojt-monitoring-system-44070',
-  storageBucket: 'ojt-monitoring-system-44070.firebasestorage.app',
-  messagingSenderId: '910935241512',
-  appId: '1:910935241512:web:15533661247267339d561d',
-  measurementId: 'G-QK59E8TEW8',
-);
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  if (kIsWeb || defaultTargetPlatform == TargetPlatform.windows) {
-    await Firebase.initializeApp(options: _webFirebaseOptions);
-  } else {
-    await Firebase.initializeApp();
-  }
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
 
   await Hive.initFlutter();
 
   runApp(const OjtApp());
 }
 
-class AppServices extends InheritedWidget {
-  final AuthService authService;
-  final StudentRepository studentRepository;
-  final AttendanceRepository attendanceRepository;
-  final UserRepository userRepository;
-  final RoleRepository roleRepository;
-  final LiveLocationRepository liveLocationRepository;
-  final TimeRequestRepository timeRequestRepository;
-  final CompanyRepository companyRepository;
-  final EnrollmentRepository enrollmentRepository;
-  final OfflineAttendanceQueueService offlineAttendanceQueueService;
+class AppThemeController extends ChangeNotifier {
+  static const String _boxName = 'app_settings';
+  static const String _darkModeKey = 'dark_mode_enabled';
 
-  const AppServices({
-    super.key,
-    required this.authService,
-    required this.studentRepository,
-    required this.attendanceRepository,
-    required this.userRepository,
-    required this.roleRepository,
-    required this.liveLocationRepository,
-    required this.timeRequestRepository,
-    required this.companyRepository,
-    required this.enrollmentRepository,
-    required this.offlineAttendanceQueueService,
-    required super.child,
-  });
+  Box<dynamic>? _box;
+  bool _isDarkMode = false;
 
-  static AppServices of(BuildContext context) {
-    final result = context.dependOnInheritedWidgetOfExactType<AppServices>();
-    assert(result != null, 'No AppServices found in widget tree');
-    return result!;
+  bool get isDarkMode => _isDarkMode;
+
+  ThemeMode get themeMode => _isDarkMode ? ThemeMode.dark : ThemeMode.light;
+
+  Future<void> init() async {
+    _box = await Hive.openBox<dynamic>(_boxName);
+    _isDarkMode = _box?.get(_darkModeKey, defaultValue: false) == true;
   }
 
-  @override
-  bool updateShouldNotify(AppServices oldWidget) => false;
+  Future<void> setDarkMode(bool value) async {
+    if (_isDarkMode == value) return;
+
+    _isDarkMode = value;
+    await _box?.put(_darkModeKey, value);
+    notifyListeners();
+  }
 }
 
 class OjtApp extends StatefulWidget {
@@ -103,154 +79,295 @@ class _OjtAppState extends State<OjtApp> {
   late final CompanyRepository _companyRepository;
   late final EnrollmentRepository _enrollmentRepository;
   late final OfflineAttendanceQueueService _offlineAttendanceQueueService;
+  late final AppThemeController _themeController;
 
-  late final Future<void> _offlineQueueInitFuture;
+  late final Future<void> _appInitFuture;
 
   @override
-  void initState() {
-    super.initState();
+void initState() {
+  super.initState();
 
-    _authService = AuthService();
-    _studentRepository = StudentRepository();
-    _attendanceRepository = AttendanceRepository();
-    _userRepository = UserRepository();
-    _roleRepository = RoleRepository();
-    _liveLocationRepository = LiveLocationRepository();
-    _timeRequestRepository = TimeRequestRepository();
-    _companyRepository = CompanyRepository();
-    _enrollmentRepository = EnrollmentRepository();
+  _authService = AuthService();
+  _studentRepository = StudentRepository();
+  _attendanceRepository = AttendanceRepository();
+  _userRepository = UserRepository();
+  _roleRepository = RoleRepository();
+  _liveLocationRepository = LiveLocationRepository();
+  _timeRequestRepository = TimeRequestRepository();
+  _companyRepository = CompanyRepository();
+  _enrollmentRepository = EnrollmentRepository();
+  _themeController = AppThemeController();
 
-    _offlineAttendanceQueueService = OfflineAttendanceQueueService(
-      attendanceRepository: _attendanceRepository,
-      liveLocationRepository: _liveLocationRepository,
+  _offlineAttendanceQueueService = OfflineAttendanceQueueService(
+    attendanceRepository: _attendanceRepository,
+    liveLocationRepository: _liveLocationRepository,
+  );
+
+  _appInitFuture = _initializeAppServices();
+}
+
+Future<void> _initializeAppServices() async {
+  await _themeController.init().timeout(
+    const Duration(seconds: 5),
+    onTimeout: () {
+      debugPrint(
+        'Theme settings init timed out. Continuing with default theme.',
+      );
+    },
+  );
+
+  if (!kIsWeb) {
+    await _offlineAttendanceQueueService.init().timeout(
+      const Duration(seconds: 8),
+      onTimeout: () {
+        debugPrint(
+          'Offline attendance storage init timed out. Continuing app startup.',
+        );
+      },
     );
-
-    _offlineQueueInitFuture = _offlineAttendanceQueueService.init();
+  } else {
+    debugPrint('Skipping offline attendance queue init on web.');
   }
+}
+
 
   @override
-  void dispose() {
-    _offlineAttendanceQueueService.dispose();
-    super.dispose();
-  }
+void dispose() {
+  _offlineAttendanceQueueService.dispose();
+  _themeController.dispose();
+  super.dispose();
+}
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<void>(
-      future: _offlineQueueInitFuture,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
+    return AppServices(
+      authService: _authService,
+      studentRepository: _studentRepository,
+      attendanceRepository: _attendanceRepository,
+      userRepository: _userRepository,
+      roleRepository: _roleRepository,
+      liveLocationRepository: _liveLocationRepository,
+      timeRequestRepository: _timeRequestRepository,
+      companyRepository: _companyRepository,
+      enrollmentRepository: _enrollmentRepository,
+      offlineAttendanceQueueService: _offlineAttendanceQueueService,
+      themeController: _themeController,
+      child: AnimatedBuilder(
+        animation: _themeController,
+        builder: (context, _) {
           return MaterialApp(
-            title: 'GeoAI OJT Monitoring System',
+            title: 'GeoAI OJT Monitoring',
             debugShowCheckedModeBanner: false,
+            themeMode: _themeController.themeMode,
             theme: ThemeData(
-              colorScheme: ColorScheme.fromSeed(
-                seedColor: const Color(0xFF1565C0),
-              ),
               useMaterial3: true,
+              brightness: Brightness.light,
+              scaffoldBackgroundColor: const Color(0xFFF5F7FA),
+              colorScheme: ColorScheme.fromSeed(
+                seedColor: const Color(0xFF0D4DB3),
+                brightness: Brightness.light,
+              ),
             ),
-            home: const _LoadingScreen(
-              message: 'Preparing offline attendance storage...',
+            darkTheme: ThemeData(
+              useMaterial3: true,
+              brightness: Brightness.dark,
+              scaffoldBackgroundColor: const Color(0xFF0F172A),
+              colorScheme: ColorScheme.fromSeed(
+                seedColor: const Color(0xFF0D4DB3),
+                brightness: Brightness.dark,
+              ),
+            ),
+            home: FutureBuilder<void>(
+              future: _appInitFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const AppStartupLoadingScreen();
+                }
+
+                if (snapshot.hasError) {
+                  return AppStartupErrorScreen(
+                    error: snapshot.error.toString(),
+                  );
+                }
+
+                return const AuthGate();
+              },
             ),
           );
-        }
-
-        return AppServices(
-          authService: _authService,
-          studentRepository: _studentRepository,
-          attendanceRepository: _attendanceRepository,
-          userRepository: _userRepository,
-          roleRepository: _roleRepository,
-          liveLocationRepository: _liveLocationRepository,
-          timeRequestRepository: _timeRequestRepository,
-          companyRepository: _companyRepository,
-          enrollmentRepository: _enrollmentRepository,
-          offlineAttendanceQueueService: _offlineAttendanceQueueService,
-          child: MaterialApp(
-            title: 'GeoAI OJT Monitoring System',
-            debugShowCheckedModeBanner: false,
-            theme: ThemeData(
-              colorScheme: ColorScheme.fromSeed(
-                seedColor: const Color(0xFF1565C0),
-              ),
-              useMaterial3: true,
-            ),
-            home: const AuthGate(),
-          ),
-        );
-      },
+        },
+      ),
     );
   }
 }
 
-class AuthGate extends StatelessWidget {
+class AppServices extends InheritedWidget {
+  final AuthService authService;
+  final StudentRepository studentRepository;
+  final AttendanceRepository attendanceRepository;
+  final UserRepository userRepository;
+  final RoleRepository roleRepository;
+  final LiveLocationRepository liveLocationRepository;
+  final TimeRequestRepository timeRequestRepository;
+  final CompanyRepository companyRepository;
+  final EnrollmentRepository enrollmentRepository;
+  final OfflineAttendanceQueueService offlineAttendanceQueueService;
+  final AppThemeController themeController;
+
+  const AppServices({
+    super.key,
+    required this.authService,
+    required this.studentRepository,
+    required this.attendanceRepository,
+    required this.userRepository,
+    required this.roleRepository,
+    required this.liveLocationRepository,
+    required this.timeRequestRepository,
+    required this.companyRepository,
+    required this.enrollmentRepository,
+    required this.offlineAttendanceQueueService,
+    required this.themeController,
+    required super.child,
+  });
+
+  static AppServices of(BuildContext context) {
+    final services = context.dependOnInheritedWidgetOfExactType<AppServices>();
+
+    if (services == null) {
+      throw FlutterError(
+        'AppServices.of(context) called with a context that does not contain AppServices.',
+      );
+    }
+
+    return services;
+  }
+
+  @override
+  bool updateShouldNotify(AppServices oldWidget) {
+    return authService != oldWidget.authService ||
+        studentRepository != oldWidget.studentRepository ||
+        attendanceRepository != oldWidget.attendanceRepository ||
+        userRepository != oldWidget.userRepository ||
+        roleRepository != oldWidget.roleRepository ||
+        liveLocationRepository != oldWidget.liveLocationRepository ||
+        timeRequestRepository != oldWidget.timeRequestRepository ||
+        companyRepository != oldWidget.companyRepository ||
+        enrollmentRepository != oldWidget.enrollmentRepository ||
+        offlineAttendanceQueueService !=
+            oldWidget.offlineAttendanceQueueService ||
+        themeController != oldWidget.themeController;
+  }
+}
+
+class AuthGate extends StatefulWidget {
   const AuthGate({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final authService = AppServices.of(context).authService;
-    final userRepository = AppServices.of(context).userRepository;
+  State<AuthGate> createState() => _AuthGateState();
+}
 
-    return StreamBuilder<User?>(
-      stream: authService.authStateChanges,
-      builder: (context, authSnapshot) {
-        if (authSnapshot.connectionState == ConnectionState.waiting) {
-          return const _LoadingScreen();
+class _AuthGateState extends State<AuthGate> {
+  Future<UserRole?>? _roleFuture;
+  String? _loadedUid;
+
+  @override
+  Widget build(BuildContext context) {
+    final services = AppServices.of(context);
+
+    return StreamBuilder(
+      stream: services.authService.authStateChanges,
+      builder: (context, snapshot) {
+        final firebaseUser = snapshot.data;
+
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const AppLoadingScreen(message: 'Checking sign-in status...');
         }
 
-        final firebaseUser = authSnapshot.data;
-
         if (firebaseUser == null) {
-          return kIsWeb ? const WebLoginScreen() : const LoginScreen();
+          _roleFuture = null;
+          _loadedUid = null;
+
+          if (kIsWeb) {
+            return const WebLoginScreen();
+          }
+
+          return const LoginScreen();
+        }
+
+        if (_loadedUid != firebaseUser.uid || _roleFuture == null) {
+          _loadedUid = firebaseUser.uid;
+          _roleFuture = services.userRepository.getUserRoleWithRetry(
+            firebaseUser.uid,
+          );
         }
 
         return FutureBuilder<UserRole?>(
-          future: userRepository.getUserRoleWithRetry(firebaseUser.uid),
+          future: _roleFuture,
           builder: (context, roleSnapshot) {
             if (roleSnapshot.connectionState == ConnectionState.waiting) {
-              return const _LoadingScreen(message: 'Verifying your account...');
+              return const AppLoadingScreen(message: 'Loading account role...');
             }
 
             if (roleSnapshot.hasError) {
-              return _AccessProblemScreen(
-                title: 'Account Check Failed',
+              return AccessProblemScreen(
+                title: 'Could not load your account',
                 message:
-                    'We could not verify your account right now. Please sign in again.',
-                buttonText: 'Sign Out',
-                onPressed: authService.signOut,
+                    'We could not verify your account role. Please try signing in again.',
+                onLogout: () async {
+                  await services.authService.signOut();
+                },
               );
             }
 
             final role = roleSnapshot.data;
 
             if (role == null) {
-              return _AccessProblemScreen(
-                title: 'Profile Not Found',
+              return AccessProblemScreen(
+                title: 'No role found',
                 message:
-                    'Your login is valid, but your user profile was not found. Please contact your administrator.',
-                buttonText: 'Sign Out',
-                onPressed: authService.signOut,
+                    'Your account exists, but it does not have an assigned role yet. Please contact your administrator.',
+                onLogout: () async {
+                  await services.authService.signOut();
+                },
               );
             }
 
-            if (!kIsWeb && role == UserRole.intern) {
-              return const InternHomeScreen();
+            if (role == UserRole.supervisor) {
+              if (kIsWeb) {
+                return const AdminDashboardLayout();
+              }
+
+              return AccessProblemScreen(
+                title: 'Web portal required',
+                message:
+                    'Supervisor accounts must use the web admin portal. Please open this system in a desktop browser.',
+                onLogout: () async {
+                  await services.authService.signOut();
+                },
+              );
             }
 
-            if (kIsWeb && role == UserRole.supervisor) {
-              return const AdminDashboardLayout(activeRoute: 'Live Monitoring');
+            if (role == UserRole.intern) {
+              if (!kIsWeb) {
+                return const InternHomeScreen();
+              }
+
+              return AccessProblemScreen(
+                title: 'Mobile app required',
+                message:
+                    'Intern accounts must use the mobile app. Please sign in on your Android device.',
+                onLogout: () async {
+                  await services.authService.signOut();
+                },
+              );
             }
 
-            if (kIsWeb) {
-              return const WebUnauthorizedScreen();
-            }
-
-            return _AccessProblemScreen(
-              title: 'Access Denied',
+            return AccessProblemScreen(
+              title: 'Unsupported role',
               message:
-                  'This app is for Intern accounts only. Please use the web portal for Supervisor accounts.',
-              buttonText: 'Sign Out',
-              onPressed: authService.signOut,
+                  'Your account role is not supported by this application.',
+              onLogout: () async {
+                await services.authService.signOut();
+              },
             );
           },
         );
@@ -259,123 +376,207 @@ class AuthGate extends StatelessWidget {
   }
 }
 
-class _LoadingScreen extends StatelessWidget {
-  final String? message;
-
-  const _LoadingScreen({this.message});
+class AppStartupLoadingScreen extends StatelessWidget {
+  const AppStartupLoadingScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF0F2F5),
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation(Color(0xFF1565C0)),
-            ),
-            if (message != null) ...[
-              const SizedBox(height: 16),
-              Text(
-                message!,
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey[600], fontSize: 13),
-              ),
-            ],
-          ],
-        ),
-      ),
+    return const AppLoadingScreen(
+      message: kIsWeb
+          ? 'Preparing web portal...'
+          : 'Preparing offline attendance storage...',
     );
   }
 }
 
-class _AccessProblemScreen extends StatelessWidget {
-  final String title;
+class AppLoadingScreen extends StatelessWidget {
   final String message;
-  final String buttonText;
-  final Future<void> Function() onPressed;
 
-  const _AccessProblemScreen({
-    required this.title,
+  const AppLoadingScreen({
+    super.key,
     required this.message,
-    required this.buttonText,
-    required this.onPressed,
   });
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF0F2F5),
+      backgroundColor: const Color(0xFFF5F7FA),
       body: Center(
         child: Container(
-          constraints: const BoxConstraints(maxWidth: 380),
-          margin: const EdgeInsets.all(24),
-          padding: const EdgeInsets.all(28),
+          width: 320,
+          padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: const Color(0xFFE7ECF3)),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.07),
-                blurRadius: 20,
-                offset: const Offset(0, 6),
+                color: Colors.black.withOpacity(0.04),
+                blurRadius: 18,
+                offset: const Offset(0, 8),
               ),
             ],
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFEBEE),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: const Icon(
-                  Icons.block_rounded,
-                  color: Color(0xFFC62828),
-                  size: 28,
-                ),
+              const CircularProgressIndicator(
+                color: Color(0xFF0D4DB3),
               ),
-              const SizedBox(height: 16),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                  color: Colors.black87,
-                ),
-              ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 18),
               Text(
                 message,
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.grey[600],
-                  height: 1.5,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF0A2351),
                 ),
               ),
-              const SizedBox(height: 24),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class AppStartupErrorScreen extends StatelessWidget {
+  final String error;
+
+  const AppStartupErrorScreen({
+    super.key,
+    required this.error,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F7FA),
+      body: Center(
+        child: Container(
+          width: 420,
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: const Color(0xFFE7ECF3)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.error_outline_rounded,
+                color: Color(0xFFC62828),
+                size: 42,
+              ),
+              const SizedBox(height: 14),
+              const Text(
+                'Startup failed',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF0A2351),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                error,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: Color(0xFF6B7280),
+                  height: 1.4,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class AccessProblemScreen extends StatelessWidget {
+  final String title;
+  final String message;
+  final Future<void> Function() onLogout;
+
+  const AccessProblemScreen({
+    super.key,
+    required this.title,
+    required this.message,
+    required this.onLogout,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F7FA),
+      body: Center(
+        child: Container(
+          width: 420,
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: const Color(0xFFE7ECF3)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.04),
+                blurRadius: 18,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.lock_outline_rounded,
+                color: Color(0xFF0D4DB3),
+                size: 42,
+              ),
+              const SizedBox(height: 14),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF0A2351),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: Color(0xFF6B7280),
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 18),
               SizedBox(
                 width: double.infinity,
                 height: 46,
                 child: ElevatedButton.icon(
-                  onPressed: onPressed,
+                  onPressed: () async {
+                    await onLogout();
+                  },
                   icon: const Icon(Icons.logout_rounded, size: 18),
-                  label: Text(
-                    buttonText,
-                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  label: const Text(
+                    'Sign Out',
+                    style: TextStyle(fontWeight: FontWeight.w800),
                   ),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF1565C0),
+                    backgroundColor: const Color(0xFF0D4DB3),
                     foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
                     elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
               ),

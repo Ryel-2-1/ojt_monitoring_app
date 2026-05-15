@@ -12,6 +12,30 @@ class GeoAnalyticsScreen extends StatefulWidget {
 }
 
 class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
+  bool get _isDarkMode => AppServices.of(context).themeController.isDarkMode;
+
+  Color get _pageTextColor =>
+      _isDarkMode ? Colors.white : const Color(0xFF0A2351);
+
+  Color get _cardColor =>
+      _isDarkMode ? const Color(0xFF0F172A) : Colors.white;
+
+  Color get _softCardColor =>
+      _isDarkMode ? const Color(0xFF111827) : const Color(0xFFF8FAFC);
+
+  Color get _inputColor =>
+      _isDarkMode ? const Color(0xFF0B1120) : const Color(0xFFF5F7FA);
+
+  Color get _borderColor =>
+      _isDarkMode ? const Color(0xFF243244) : const Color(0xFFE7ECF3);
+
+  Color get _mutedTextColor =>
+      _isDarkMode ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280);
+
+  static const Color _blue = Color(0xFF0D4DB3);
+  static const Color _green = Color(0xFF14A44D);
+  static const Color _red = Color(0xFFC62828);
+
   final _formKey = GlobalKey<FormState>();
 
   final _companyNameController = TextEditingController();
@@ -108,12 +132,13 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
       });
 
       _clearForm();
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
 
       setState(() {
         _isSaving = false;
-        _message = 'Failed to save company. Please check the details and try again.';
+        _message =
+            'Failed to save company. Please check the details and try again.';
       });
     }
   }
@@ -142,21 +167,32 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
 
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) {
+      builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('Delete company?'),
+          backgroundColor: _cardColor,
+          title: Text(
+            'Delete company?',
+            style: GoogleFonts.plusJakartaSans(
+              fontWeight: FontWeight.w900,
+              color: _pageTextColor,
+            ),
+          ),
           content: Text(
             'This will remove "${company.companyName}" from the company registry. Existing intern records will not be automatically changed.',
+            style: GoogleFonts.plusJakartaSans(
+              color: _mutedTextColor,
+              height: 1.4,
+            ),
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
+              onPressed: () => Navigator.of(dialogContext).pop(false),
               child: const Text('Cancel'),
             ),
             ElevatedButton(
-              onPressed: () => Navigator.of(context).pop(true),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFC62828),
+                backgroundColor: _red,
                 foregroundColor: Colors.white,
               ),
               child: const Text('Delete'),
@@ -185,63 +221,69 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
   Widget build(BuildContext context) {
     final repo = AppServices.of(context).companyRepository;
 
-    return Padding(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildHeader(),
-          const SizedBox(height: 22),
-          Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SizedBox(
-                  width: 420,
-                  child: _buildCompanyForm(),
+    return AnimatedBuilder(
+      animation: AppServices.of(context).themeController,
+      builder: (context, _) {
+        return Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildHeader(),
+              const SizedBox(height: 22),
+              Expanded(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 420,
+                      child: _buildCompanyForm(),
+                    ),
+                    const SizedBox(width: 22),
+                    Expanded(
+                      child: StreamBuilder<List<CompanyModel>>(
+                        stream: repo.streamCompanies(),
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState ==
+                              ConnectionState.waiting) {
+                            return const Center(
+                              child: CircularProgressIndicator(
+                                color: _blue,
+                              ),
+                            );
+                          }
+
+                          if (snapshot.hasError) {
+                            return _buildStateCard(
+                              icon: Icons.error_outline_rounded,
+                              title: 'Could not load companies',
+                              message:
+                                  'Please check your Firestore permissions and try again.',
+                            );
+                          }
+
+                          final companies = snapshot.data ?? [];
+
+                          if (companies.isEmpty) {
+                            return _buildStateCard(
+                              icon: Icons.business_outlined,
+                              title: 'No companies registered yet',
+                              message:
+                                  'Register partner companies here so interns can be assigned without manually encoding geofence data every time.',
+                            );
+                          }
+
+                          return _buildCompanyList(companies);
+                        },
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 22),
-                Expanded(
-                  child: StreamBuilder<List<CompanyModel>>(
-                    stream: repo.streamCompanies(),
-                    builder: (context, snapshot) {
-                      if (snapshot.connectionState == ConnectionState.waiting) {
-                        return const Center(
-                          child: CircularProgressIndicator(
-                            color: Color(0xFF0D4DB3),
-                          ),
-                        );
-                      }
-
-                      if (snapshot.hasError) {
-                        return _buildStateCard(
-                          icon: Icons.error_outline_rounded,
-                          title: 'Could not load companies',
-                          message:
-                              'Please check your Firestore permissions and try again.',
-                        );
-                      }
-
-                      final companies = snapshot.data ?? [];
-
-                      if (companies.isEmpty) {
-                        return _buildStateCard(
-                          icon: Icons.business_outlined,
-                          title: 'No companies registered yet',
-                          message:
-                              'Register partner companies here so interns can be assigned without manually encoding geofence data every time.',
-                        );
-                      }
-
-                      return _buildCompanyList(companies);
-                    },
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -250,19 +292,19 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Geo-Analytics',
+          'Company Registry',
           style: GoogleFonts.plusJakartaSans(
             fontSize: 34,
             fontWeight: FontWeight.w900,
-            color: const Color(0xFF0A2351),
+            color: _pageTextColor,
           ),
         ),
         const SizedBox(height: 8),
         Text(
-          'Register partner companies and their geofence settings once, then assign interns to them later.',
+          'Manage partner companies, assigned locations, and geofence settings for intern deployment.',
           style: GoogleFonts.plusJakartaSans(
             fontSize: 13,
-            color: Colors.grey[600],
+            color: _mutedTextColor,
             fontWeight: FontWeight.w500,
           ),
         ),
@@ -275,9 +317,9 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
 
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _cardColor,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFE7ECF3)),
+        border: Border.all(color: _borderColor),
       ),
       child: Column(
         children: [
@@ -294,12 +336,14 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
                     width: 42,
                     height: 42,
                     decoration: BoxDecoration(
-                      color: const Color(0xFFEAF1FF),
+                      color: _isDarkMode
+                          ? const Color(0xFF1F2937)
+                          : const Color(0xFFEAF1FF),
                       borderRadius: BorderRadius.circular(14),
                     ),
                     child: const Icon(
                       Icons.add_business_outlined,
-                      color: Color(0xFF0D4DB3),
+                      color: _blue,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -309,7 +353,7 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
                       style: GoogleFonts.plusJakartaSans(
                         fontSize: 16,
                         fontWeight: FontWeight.w900,
-                        color: const Color(0xFF0A2351),
+                        color: _pageTextColor,
                       ),
                     ),
                   ),
@@ -317,7 +361,7 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
                     _isFormExpanded
                         ? Icons.keyboard_arrow_up_rounded
                         : Icons.keyboard_arrow_down_rounded,
-                    color: const Color(0xFF0D4DB3),
+                    color: _blue,
                   ),
                 ],
               ),
@@ -329,7 +373,7 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
               child: _buildMessageCard(),
             ),
           if (_isFormExpanded) ...[
-            const Divider(height: 1, color: Color(0xFFE7ECF3)),
+            Divider(height: 1, color: _borderColor),
             Padding(
               padding: const EdgeInsets.all(18),
               child: Form(
@@ -338,6 +382,10 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
                   children: [
                     TextFormField(
                       controller: _companyNameController,
+                      style: GoogleFonts.plusJakartaSans(
+                        color: _pageTextColor,
+                        fontWeight: FontWeight.w700,
+                      ),
                       decoration: _decor('Company Name'),
                       validator: (value) =>
                           value == null || value.trim().isEmpty
@@ -348,6 +396,10 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
                     TextFormField(
                       controller: _companyAddressController,
                       maxLines: 2,
+                      style: GoogleFonts.plusJakartaSans(
+                        color: _pageTextColor,
+                        fontWeight: FontWeight.w700,
+                      ),
                       decoration: _decor('Company Address'),
                       validator: (value) =>
                           value == null || value.trim().isEmpty
@@ -360,6 +412,10 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
                         Expanded(
                           child: TextFormField(
                             controller: _latitudeController,
+                            style: GoogleFonts.plusJakartaSans(
+                              color: _pageTextColor,
+                              fontWeight: FontWeight.w700,
+                            ),
                             keyboardType: const TextInputType.numberWithOptions(
                               decimal: true,
                               signed: true,
@@ -372,6 +428,10 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
                         Expanded(
                           child: TextFormField(
                             controller: _longitudeController,
+                            style: GoogleFonts.plusJakartaSans(
+                              color: _pageTextColor,
+                              fontWeight: FontWeight.w700,
+                            ),
                             keyboardType: const TextInputType.numberWithOptions(
                               decimal: true,
                               signed: true,
@@ -385,6 +445,10 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _radiusController,
+                      style: GoogleFonts.plusJakartaSans(
+                        color: _pageTextColor,
+                        fontWeight: FontWeight.w700,
+                      ),
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
                       ),
@@ -406,10 +470,8 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
                             child: OutlinedButton(
                               onPressed: _isSaving ? null : _clearForm,
                               style: OutlinedButton.styleFrom(
-                                foregroundColor: const Color(0xFF0D4DB3),
-                                side: const BorderSide(
-                                  color: Color(0xFF0D4DB3),
-                                ),
+                                foregroundColor: _blue,
+                                side: const BorderSide(color: _blue),
                                 padding:
                                     const EdgeInsets.symmetric(vertical: 15),
                                 shape: RoundedRectangleBorder(
@@ -431,17 +493,21 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
                           child: ElevatedButton.icon(
                             onPressed: _isSaving ? null : _saveCompany,
                             icon: _isSaving
-                                ? const SizedBox(
+                                ? SizedBox(
                                     width: 16,
                                     height: 16,
                                     child: CircularProgressIndicator(
                                       strokeWidth: 2,
-                                      color: Colors.white,
+                                      color: _isDarkMode
+                                          ? Colors.white
+                                          : _cardColor,
                                     ),
                                   )
-                                : Icon(isEditing
-                                    ? Icons.save_outlined
-                                    : Icons.add_rounded),
+                                : Icon(
+                                    isEditing
+                                        ? Icons.save_outlined
+                                        : Icons.add_rounded,
+                                  ),
                             label: Text(
                               isEditing ? 'Save Changes' : 'Register Company',
                               style: GoogleFonts.plusJakartaSans(
@@ -449,7 +515,7 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
                               ),
                             ),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF0D4DB3),
+                              backgroundColor: _blue,
                               foregroundColor: Colors.white,
                               disabledBackgroundColor: Colors.grey[300],
                               elevation: 0,
@@ -478,9 +544,9 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _cardColor,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFE7ECF3)),
+        border: Border.all(color: _borderColor),
       ),
       child: Column(
         children: [
@@ -491,7 +557,7 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
                 style: GoogleFonts.plusJakartaSans(
                   fontSize: 18,
                   fontWeight: FontWeight.w900,
-                  color: const Color(0xFF0A2351),
+                  color: _pageTextColor,
                 ),
               ),
               const Spacer(),
@@ -516,15 +582,14 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
   }
 
   Widget _buildCompanyCard(CompanyModel company) {
-    final statusColor =
-        company.isActive ? const Color(0xFF14A44D) : const Color(0xFFC62828);
+    final statusColor = company.isActive ? _green : _red;
 
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFD),
+        color: _softCardColor,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE7ECF3)),
+        border: Border.all(color: _borderColor),
       ),
       child: Column(
         children: [
@@ -532,13 +597,15 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
             children: [
               CircleAvatar(
                 radius: 23,
-                backgroundColor: const Color(0xFFE8F0FF),
+                backgroundColor: _isDarkMode
+                    ? const Color(0xFF1F2937)
+                    : const Color(0xFFE8F0FF),
                 child: Text(
                   _initialsOf(company.companyName),
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 12,
                     fontWeight: FontWeight.w900,
-                    color: const Color(0xFF0D4DB3),
+                    color: _blue,
                   ),
                 ),
               ),
@@ -554,7 +621,7 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
                       style: GoogleFonts.plusJakartaSans(
                         fontSize: 15,
                         fontWeight: FontWeight.w900,
-                        color: const Color(0xFF1C2434),
+                        color: _pageTextColor,
                       ),
                     ),
                     const SizedBox(height: 3),
@@ -564,7 +631,7 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
                       overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.plusJakartaSans(
                         fontSize: 12,
-                        color: Colors.grey[600],
+                        color: _mutedTextColor,
                         height: 1.35,
                       ),
                     ),
@@ -609,6 +676,7 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
           Row(
             children: [
               Expanded(
+                flex: 2,
                 child: OutlinedButton.icon(
                   onPressed: () => _startEdit(company),
                   icon: const Icon(Icons.edit_location_alt_outlined, size: 17),
@@ -619,8 +687,8 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
                     ),
                   ),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFF0D4DB3),
-                    side: const BorderSide(color: Color(0xFF0D4DB3)),
+                    foregroundColor: _blue,
+                    side: const BorderSide(color: _blue),
                     padding: const EdgeInsets.symmetric(vertical: 13),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
@@ -630,6 +698,7 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
               ),
               const SizedBox(width: 8),
               Expanded(
+                flex: 2,
                 child: OutlinedButton.icon(
                   onPressed: () => _toggleActive(company),
                   icon: Icon(
@@ -645,11 +714,9 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
                     ),
                   ),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor:
-                        company.isActive ? const Color(0xFFC62828) : const Color(0xFF14A44D),
+                    foregroundColor: company.isActive ? _red : _green,
                     side: BorderSide(
-                      color:
-                          company.isActive ? const Color(0xFFC62828) : const Color(0xFF14A44D),
+                      color: company.isActive ? _red : _green,
                     ),
                     padding: const EdgeInsets.symmetric(vertical: 13),
                     shape: RoundedRectangleBorder(
@@ -659,11 +726,23 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
                 ),
               ),
               const SizedBox(width: 8),
-              IconButton(
-                onPressed: () => _deleteCompany(company),
-                tooltip: 'Delete',
-                icon: const Icon(Icons.delete_outline_rounded),
-                color: const Color(0xFFC62828),
+              SizedBox(
+                height: 46,
+                width: 46,
+                child: OutlinedButton(
+                  onPressed: () => _deleteCompany(company),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _red,
+                    side: BorderSide(
+                      color: _red.withValues(alpha: 0.55),
+                    ),
+                    padding: EdgeInsets.zero,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Icon(Icons.delete_outline_rounded, size: 20),
+                ),
               ),
             ],
           ),
@@ -680,13 +759,13 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _isDarkMode ? const Color(0xFF0B1120) : Colors.white,
         borderRadius: BorderRadius.circular(13),
-        border: Border.all(color: const Color(0xFFE7ECF3)),
+        border: Border.all(color: _borderColor),
       ),
       child: Row(
         children: [
-          Icon(icon, size: 17, color: const Color(0xFF0D4DB3)),
+          Icon(icon, size: 17, color: _blue),
           const SizedBox(width: 7),
           Expanded(
             child: Column(
@@ -697,7 +776,7 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 10,
                     fontWeight: FontWeight.w800,
-                    color: Colors.grey[500],
+                    color: _mutedTextColor,
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -707,7 +786,7 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 11,
                     fontWeight: FontWeight.w900,
-                    color: const Color(0xFF1C2434),
+                    color: _pageTextColor,
                   ),
                 ),
               ],
@@ -722,15 +801,19 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
       decoration: BoxDecoration(
-        color: const Color(0xFFEAF1FF),
+        color:
+            _isDarkMode ? const Color(0xFF1F2937) : const Color(0xFFEAF1FF),
         borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: _isDarkMode ? const Color(0xFF243244) : Colors.transparent,
+        ),
       ),
       child: Text(
         label,
         style: GoogleFonts.plusJakartaSans(
           fontSize: 11,
           fontWeight: FontWeight.w900,
-          color: const Color(0xFF0D4DB3),
+          color: _isDarkMode ? const Color(0xFF93C5FD) : _blue,
         ),
       ),
     );
@@ -740,7 +823,7 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.10),
+        color: color.withValues(alpha: _isDarkMode ? 0.18 : 0.10),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
@@ -757,15 +840,23 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
   Widget _buildMessageCard() {
     final isSuccess = _message?.contains('successfully') == true;
 
+    final bgColor = isSuccess
+        ? (_isDarkMode ? const Color(0xFF052E1A) : const Color(0xFFE8F5E9))
+        : (_isDarkMode ? const Color(0xFF3F1111) : const Color(0xFFFFEBEE));
+
+    final borderColor = isSuccess ? _green : _red;
+
+    final textColor = isSuccess
+        ? (_isDarkMode ? const Color(0xFF86EFAC) : const Color(0xFF1B5E20))
+        : (_isDarkMode ? const Color(0xFFFCA5A5) : _red);
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: isSuccess ? const Color(0xFFE8F5E9) : const Color(0xFFFFEBEE),
+        color: bgColor,
         borderRadius: BorderRadius.circular(13),
-        border: Border.all(
-          color: isSuccess ? const Color(0xFF14A44D) : const Color(0xFFC62828),
-        ),
+        border: Border.all(color: borderColor),
       ),
       child: Row(
         children: [
@@ -773,7 +864,7 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
             isSuccess
                 ? Icons.check_circle_outline_rounded
                 : Icons.error_outline_rounded,
-            color: isSuccess ? const Color(0xFF14A44D) : const Color(0xFFC62828),
+            color: borderColor,
             size: 20,
           ),
           const SizedBox(width: 9),
@@ -783,8 +874,7 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
               style: GoogleFonts.plusJakartaSans(
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
-                color:
-                    isSuccess ? const Color(0xFF1B5E20) : const Color(0xFFC62828),
+                color: textColor,
               ),
             ),
           ),
@@ -803,14 +893,14 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
         width: 440,
         padding: const EdgeInsets.all(26),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: _cardColor,
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: const Color(0xFFE7ECF3)),
+          border: Border.all(color: _borderColor),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 46, color: const Color(0xFF0D4DB3)),
+            Icon(icon, size: 46, color: _blue),
             const SizedBox(height: 12),
             Text(
               title,
@@ -818,7 +908,7 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
               style: GoogleFonts.plusJakartaSans(
                 fontSize: 17,
                 fontWeight: FontWeight.w900,
-                color: const Color(0xFF0A2351),
+                color: _pageTextColor,
               ),
             ),
             const SizedBox(height: 8),
@@ -827,7 +917,7 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
               textAlign: TextAlign.center,
               style: GoogleFonts.plusJakartaSans(
                 fontSize: 12,
-                color: Colors.grey[600],
+                color: _mutedTextColor,
                 height: 1.45,
               ),
             ),
@@ -842,14 +932,32 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
       hintText: hint,
       hintStyle: GoogleFonts.plusJakartaSans(
         fontSize: 12,
-        color: Colors.grey[500],
+        color: _mutedTextColor,
       ),
       filled: true,
-      fillColor: const Color(0xFFF5F7FA),
+      fillColor: _inputColor,
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(13),
         borderSide: BorderSide.none,
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(13),
+        borderSide: BorderSide(
+          color: _isDarkMode ? const Color(0xFF111827) : Colors.transparent,
+        ),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(13),
+        borderSide: const BorderSide(color: _blue, width: 1.4),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(13),
+        borderSide: const BorderSide(color: _red, width: 1.2),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(13),
+        borderSide: const BorderSide(color: _red, width: 1.4),
       ),
     );
   }
@@ -862,6 +970,7 @@ class _GeoAnalyticsScreenState extends State<GeoAnalyticsScreen> {
 
   String _initialsOf(String value) {
     final parts = value.trim().split(RegExp(r'\s+'));
+
     if (parts.isEmpty || parts.first.isEmpty) return 'C';
     if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
 
