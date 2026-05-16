@@ -85,8 +85,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
         fullName: _nameController.text.trim(),
       );
 
-      // Success: AuthGate stream fires automatically — no manual navigation needed.
-      if (mounted) setState(() => _isLoading = false);
+      if (!mounted) return;
+
+      // Replace the login/register stack with AuthGate.
+      // This prevents the register page from staying on top after Firebase Auth
+      // has already signed the new intern in.
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const AuthGate()),
+        (route) => false,
+      );
     } on AuthException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -121,7 +128,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   textAlign: TextAlign.center,
                   style: GoogleFonts.sourceCodePro(
                     fontSize: 10,
-                    color: Colors.grey[500],
+                    color: const Color(0xFF6B7280),
                     letterSpacing: 0.5,
                   ),
                 ),
@@ -163,7 +170,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
               icon: Icons.person_outline_rounded,
               textInputAction: TextInputAction.next,
               validator: (val) {
-                if (val == null || val.trim().isEmpty) return 'Full name is required';
+                if (val == null || val.trim().isEmpty)
+                  return 'Full name is required';
                 if (val.trim().length < 2) return 'Enter your full name';
                 return null;
               },
@@ -177,7 +185,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
               keyboardType: TextInputType.emailAddress,
               textInputAction: TextInputAction.next,
               validator: (val) {
-                if (val == null || val.trim().isEmpty) return 'Email is required';
+                if (val == null || val.trim().isEmpty)
+                  return 'Email is required';
                 if (!val.contains('@')) return 'Enter a valid email';
                 return null;
               },
@@ -188,7 +197,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
               hint: '••••••••',
               controller: _passwordController,
               obscure: _obscurePassword,
-              onToggle: () => setState(() => _obscurePassword = !_obscurePassword),
+              onToggle: () =>
+                  setState(() => _obscurePassword = !_obscurePassword),
               textInputAction: TextInputAction.next,
               validator: (val) {
                 if (val == null || val.isEmpty) return 'Password is required';
@@ -203,11 +213,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
               controller: _confirmPasswordController,
               obscure: _obscureConfirmPassword,
               onToggle: () => setState(
-                  () => _obscureConfirmPassword = !_obscureConfirmPassword),
+                () => _obscureConfirmPassword = !_obscureConfirmPassword,
+              ),
               textInputAction: TextInputAction.done,
               onFieldSubmitted: (_) => _handleRegister(),
               validator: (val) {
-                if (val == null || val.isEmpty) return 'Please confirm your password';
+                if (val == null || val.isEmpty)
+                  return 'Please confirm your password';
                 return null;
               },
             ),
@@ -250,7 +262,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
               ],
             ),
-            child: const Icon(Icons.person_add_rounded, color: Colors.white, size: 28),
+            child: const Icon(
+              Icons.person_add_rounded,
+              color: Colors.white,
+              size: 28,
+            ),
           ),
         ),
         const SizedBox(height: 16),
@@ -270,7 +286,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             'Join the GeoAI OJT Monitoring System',
             style: GoogleFonts.plusJakartaSans(
               fontSize: 13,
-              color: Colors.grey[500],
+              color: const Color(0xFF6B7280),
             ),
           ),
         ),
@@ -296,7 +312,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             fontSize: 11,
             fontWeight: FontWeight.w700,
             letterSpacing: 1.0,
-            color: Colors.grey[700],
+            color: const Color(0xFF1F2937),
           ),
         ),
         const SizedBox(height: 8),
@@ -304,7 +320,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
           controller: controller,
           keyboardType: keyboardType,
           textInputAction: textInputAction,
-          style: GoogleFonts.plusJakartaSans(fontSize: 14),
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 14,
+            color: const Color(0xFF111827),
+            fontWeight: FontWeight.w600,
+          ),
           decoration: _inputDecoration(hint: hint, icon: icon),
           validator: validator,
         ),
@@ -331,7 +351,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             fontSize: 11,
             fontWeight: FontWeight.w700,
             letterSpacing: 1.0,
-            color: Colors.grey[700],
+            color: const Color(0xFF1F2937),
           ),
         ),
         const SizedBox(height: 8),
@@ -340,16 +360,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
           obscureText: obscure,
           textInputAction: textInputAction,
           onFieldSubmitted: onFieldSubmitted,
-          style: GoogleFonts.plusJakartaSans(fontSize: 14),
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 14,
+            color: const Color(0xFF111827),
+            fontWeight: FontWeight.w600,
+          ),
           decoration: _inputDecoration(
             hint: hint,
             icon: Icons.lock_outline_rounded,
             suffix: GestureDetector(
               onTap: onToggle,
               child: Icon(
-                obscure ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                obscure
+                    ? Icons.visibility_off_outlined
+                    : Icons.visibility_outlined,
                 size: 18,
-                color: Colors.grey[500],
+                color: const Color(0xFF6B7280),
               ),
             ),
           ),
@@ -397,14 +423,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
           backgroundColor: const Color(0xFF1565C0),
           foregroundColor: Colors.white,
           disabledBackgroundColor: const Color(0xFF1565C0).withOpacity(0.6),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
           elevation: 0,
         ),
         child: _isLoading
             ? const SizedBox(
                 width: 20,
                 height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
               )
             : Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -412,7 +443,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   Text(
                     'Create Account',
                     style: GoogleFonts.plusJakartaSans(
-                        fontSize: 15, fontWeight: FontWeight.w700),
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                   const SizedBox(width: 8),
                   const Icon(Icons.arrow_forward_rounded, size: 18),
@@ -428,7 +461,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
         onTap: () => Navigator.pop(context),
         child: RichText(
           text: TextSpan(
-            style: GoogleFonts.plusJakartaSans(fontSize: 13, color: Colors.grey[600]),
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 13,
+              color: Colors.grey[600],
+            ),
             children: [
               const TextSpan(text: 'Already have an account? '),
               TextSpan(
@@ -452,7 +488,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }) {
     return InputDecoration(
       hintText: hint,
-      hintStyle: GoogleFonts.plusJakartaSans(fontSize: 14, color: Colors.grey[400]),
+      hintStyle: GoogleFonts.plusJakartaSans(
+        fontSize: 14,
+        color: Colors.grey[400],
+      ),
       prefixIcon: Icon(icon, size: 18, color: Colors.grey[500]),
       suffixIcon: suffix,
       filled: true,

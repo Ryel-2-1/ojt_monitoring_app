@@ -11,6 +11,7 @@ import '../models/attendance_model.dart';
 import '../repositories/attendance_repository.dart';
 import '../services/location_service.dart' as app_location;
 
+import 'intern_home_screen.dart';
 import 'profile_screen.dart';
 import 'timesheet_screen.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -223,7 +224,59 @@ class _TimerScreenState extends State<TimerScreen>
       return 'Your required OJT hours are not set yet. Please contact your supervisor before clocking in.';
     }
 
+    final durationError = _validateInternshipDuration(
+      startDate: user.internshipStartDate,
+      endDate: user.internshipEndDate,
+    );
+
+    if (durationError != null) {
+      return durationError;
+    }
+
     return null;
+  }
+
+  String? _validateInternshipDuration({
+    required DateTime? startDate,
+    required DateTime? endDate,
+  }) {
+    if (startDate == null || endDate == null) {
+      return 'Your internship duration is not set yet. Please contact your supervisor before clocking in.';
+    }
+
+    final today = DateTime.now();
+    final todayDate = DateTime(today.year, today.month, today.day);
+    final start = DateTime(startDate.year, startDate.month, startDate.day);
+    final end = DateTime(endDate.year, endDate.month, endDate.day, 23, 59, 59);
+
+    if (todayDate.isBefore(start)) {
+      return 'Your internship has not started yet. You can clock in starting ${_formatDate(startDate)}.';
+    }
+
+    if (DateTime.now().isAfter(end)) {
+      return 'Your internship period has ended. You can no longer start a new OJT session.';
+    }
+
+    return null;
+  }
+
+  String _formatDate(DateTime date) {
+    const months = [
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ];
+
+    return '${months[date.month - 1]} ${date.day}, ${date.year}';
   }
 
   double _calculateCompletedHours(List<AttendanceModel> logs) {
@@ -925,20 +978,29 @@ class _TimerScreenState extends State<TimerScreen>
     });
   }
 
+
+  Route<T> _noTransitionRoute<T>(Widget page) {
+    return PageRouteBuilder<T>(
+      pageBuilder: (context, animation, secondaryAnimation) => page,
+      transitionDuration: Duration.zero,
+      reverseTransitionDuration: Duration.zero,
+    );
+  }
+
   void _handleBottomNavTap(int index) {
     if (index == 1) return;
 
     switch (index) {
       case 0:
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const AuthGate()),
+          _noTransitionRoute(const InternHomeScreen()),
           (route) => false,
         );
         break;
 
       case 2:
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const TimesheetScreen()),
+          _noTransitionRoute(const TimesheetScreen()),
           (route) => route.isFirst,
         );
         break;
@@ -946,7 +1008,7 @@ class _TimerScreenState extends State<TimerScreen>
       case 3:
         Navigator.of(
           context,
-        ).push(MaterialPageRoute(builder: (_) => const ProfileScreen()));
+        ).push(_noTransitionRoute(const ProfileScreen()));
         break;
     }
   }
@@ -1012,36 +1074,11 @@ class _TimerScreenState extends State<TimerScreen>
   }
 
   Widget _buildTopBar() {
-    final services = AppServices.of(context);
-    final displayName = services.authService.currentUser?.displayName;
-    final initial = displayName != null && displayName.trim().isNotEmpty
-        ? displayName[0]
-        : 'I';
-
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       color: _background,
       child: Row(
         children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: const BoxDecoration(
-              color: Color(0xFF1A3A6B),
-              shape: BoxShape.circle,
-            ),
-            child: Center(
-              child: Text(
-                initial.toUpperCase(),
-                style: GoogleFonts.dmSans(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 15,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
           Text(
             'Internship Monitor',
             style: GoogleFonts.dmSans(

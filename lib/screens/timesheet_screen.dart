@@ -11,6 +11,7 @@ import 'package:share_plus/share_plus.dart';
 import '../main.dart';
 import '../models/attendance_model.dart';
 import '../models/user_model.dart';
+import 'intern_home_screen.dart';
 import 'profile_screen.dart';
 import 'timer_screen.dart';
 
@@ -35,7 +36,8 @@ class _TimesheetScreenState extends State<TimesheetScreen> {
   Color get _background =>
       _isDarkMode ? const Color(0xFF0B1120) : const Color(0xFFF5F7FA);
 
-  Color get _cardColor => _isDarkMode ? const Color(0xFF0F172A) : Colors.white;
+  Color get _cardColor =>
+      _isDarkMode ? const Color(0xFF0F172A) : Colors.white;
 
   Color get _softCardColor =>
       _isDarkMode ? const Color(0xFF111827) : const Color(0xFFEAF1FF);
@@ -43,7 +45,8 @@ class _TimesheetScreenState extends State<TimesheetScreen> {
   Color get _borderColor =>
       _isDarkMode ? const Color(0xFF243244) : const Color(0xFFE9EEF5);
 
-  Color get _titleColor => _isDarkMode ? Colors.white : const Color(0xFF1C2434);
+  Color get _titleColor =>
+      _isDarkMode ? Colors.white : const Color(0xFF1C2434);
 
   Color get _mutedColor =>
       _isDarkMode ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280);
@@ -144,20 +147,29 @@ class _TimesheetScreenState extends State<TimesheetScreen> {
     return sorted.last;
   }
 
+
+  Route<T> _noTransitionRoute<T>(Widget page) {
+    return PageRouteBuilder<T>(
+      pageBuilder: (context, animation, secondaryAnimation) => page,
+      transitionDuration: Duration.zero,
+      reverseTransitionDuration: Duration.zero,
+    );
+  }
+
   void _handleBottomNavTap(int index) {
     if (index == 2) return;
 
     switch (index) {
       case 0:
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const AuthGate()),
+          _noTransitionRoute(const InternHomeScreen()),
           (route) => false,
         );
         break;
 
       case 1:
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const TimerScreen()),
+          _noTransitionRoute(const TimerScreen()),
           (route) => route.isFirst,
         );
         break;
@@ -165,7 +177,7 @@ class _TimesheetScreenState extends State<TimesheetScreen> {
       case 3:
         Navigator.of(
           context,
-        ).push(MaterialPageRoute(builder: (_) => const ProfileScreen()));
+        ).push(_noTransitionRoute(const ProfileScreen()));
         break;
     }
   }
@@ -294,23 +306,6 @@ class _TimesheetScreenState extends State<TimesheetScreen> {
               color: const Color(0xFF0D4DB3),
             ),
           ),
-          const Spacer(),
-          IconButton(
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'Notifications are available from the Home screen.',
-                    style: GoogleFonts.dmSans(fontSize: 13),
-                  ),
-                ),
-              );
-            },
-            icon: const Icon(
-              Icons.notifications_none_rounded,
-              color: Color(0xFF0D4DB3),
-            ),
-          ),
         ],
       ),
     );
@@ -339,9 +334,7 @@ class _TimesheetScreenState extends State<TimesheetScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
-              color: _isDarkMode
-                  ? const Color(0xFF1E293B)
-                  : const Color(0xFFE8EDF7),
+              color: _isDarkMode ? const Color(0xFF1E293B) : const Color(0xFFE8EDF7),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Text(
@@ -350,9 +343,7 @@ class _TimesheetScreenState extends State<TimesheetScreen> {
                 fontSize: 9,
                 fontWeight: FontWeight.w700,
                 letterSpacing: 0.6,
-                color: _isDarkMode
-                    ? const Color(0xFF93C5FD)
-                    : const Color(0xFF1A3A6B),
+                color: _isDarkMode ? const Color(0xFF93C5FD) : const Color(0xFF1A3A6B),
               ),
             ),
           ),
@@ -412,9 +403,7 @@ class _TimesheetScreenState extends State<TimesheetScreen> {
             child: LinearProgressIndicator(
               value: _progress,
               minHeight: 9,
-              backgroundColor: _isDarkMode
-                  ? const Color(0xFF1F2937)
-                  : const Color(0xFFE8EDF5),
+              backgroundColor: _isDarkMode ? const Color(0xFF1F2937) : const Color(0xFFE8EDF5),
               valueColor: const AlwaysStoppedAnimation(Color(0xFF0D4DB3)),
             ),
           ),
@@ -475,9 +464,7 @@ class _TimesheetScreenState extends State<TimesheetScreen> {
             width: 42,
             height: 42,
             decoration: BoxDecoration(
-              color: _isDarkMode
-                  ? const Color(0xFF1E293B)
-                  : const Color(0xFFEAF1FF),
+              color: _isDarkMode ? const Color(0xFF1E293B) : const Color(0xFFEAF1FF),
               borderRadius: BorderRadius.circular(12),
             ),
             child: const Icon(Icons.timer_outlined, color: Color(0xFF0D4DB3)),
@@ -560,9 +547,7 @@ class _TimesheetScreenState extends State<TimesheetScreen> {
                     width: 34,
                     height: 34,
                     decoration: BoxDecoration(
-                      color: _isDarkMode
-                          ? const Color(0xFF1E293B)
-                          : const Color(0xFFEAF1FF),
+                      color: _isDarkMode ? const Color(0xFF1E293B) : const Color(0xFFEAF1FF),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: const Icon(
@@ -773,7 +758,8 @@ class _GenerateTimesheetScreenState extends State<GenerateTimesheetScreen> {
   Color get _background =>
       _isDarkMode ? const Color(0xFF0B1120) : const Color(0xFFF5F7FA);
 
-  Color get _cardColor => _isDarkMode ? const Color(0xFF0F172A) : Colors.white;
+  Color get _cardColor =>
+      _isDarkMode ? const Color(0xFF0F172A) : Colors.white;
 
   Color get _softCardColor =>
       _isDarkMode ? const Color(0xFF111827) : const Color(0xFFF5F7FA);
@@ -781,7 +767,8 @@ class _GenerateTimesheetScreenState extends State<GenerateTimesheetScreen> {
   Color get _borderColor =>
       _isDarkMode ? const Color(0xFF243244) : const Color(0xFFE6EBF2);
 
-  Color get _titleColor => _isDarkMode ? Colors.white : const Color(0xFF1C2434);
+  Color get _titleColor =>
+      _isDarkMode ? Colors.white : const Color(0xFF1C2434);
 
   Color get _mutedColor =>
       _isDarkMode ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280);
@@ -1395,7 +1382,10 @@ class _GenerateTimesheetScreenState extends State<GenerateTimesheetScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, color: selected ? const Color(0xFF0D4DB3) : _mutedColor),
+            Icon(
+              icon,
+              color: selected ? const Color(0xFF0D4DB3) : _mutedColor,
+            ),
             const SizedBox(height: 12),
             Text(
               title,

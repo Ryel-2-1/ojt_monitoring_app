@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../main.dart';
 import '../models/attendance_model.dart';
 import '../models/time_request_model.dart';
+import 'intern_home_screen.dart';
 import 'profile_screen.dart';
 import 'timer_screen.dart';
 import 'timesheet_screen.dart';
@@ -191,6 +192,18 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
 
       if (currentUser == null) {
         throw Exception('User not authenticated.');
+      }
+
+      final user = await services.userRepository.getUserByUid(currentUser.uid);
+      final durationError = _validateRequestDateWithinInternship(
+        requestDate: _requestDate!,
+        internshipStartDate: user?.internshipStartDate,
+        internshipEndDate: user?.internshipEndDate,
+      );
+
+      if (durationError != null) {
+        _setSubmitMessage(durationError);
+        return;
       }
 
       final requestedStart = _combineDateAndTime(
@@ -396,6 +409,40 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
     return null;
   }
 
+  String? _validateRequestDateWithinInternship({
+    required DateTime requestDate,
+    required DateTime? internshipStartDate,
+    required DateTime? internshipEndDate,
+  }) {
+    if (internshipStartDate == null || internshipEndDate == null) {
+      return 'Your internship duration is not set yet. Please contact your supervisor before submitting a time request.';
+    }
+
+    final requested = DateTime(
+      requestDate.year,
+      requestDate.month,
+      requestDate.day,
+    );
+
+    final start = DateTime(
+      internshipStartDate.year,
+      internshipStartDate.month,
+      internshipStartDate.day,
+    );
+
+    final end = DateTime(
+      internshipEndDate.year,
+      internshipEndDate.month,
+      internshipEndDate.day,
+    );
+
+    if (requested.isBefore(start) || requested.isAfter(end)) {
+      return 'Requested date is outside your assigned internship period (${_formatDate(start)} - ${_formatDate(end)}).';
+    }
+
+    return null;
+  }
+
   DateTime _combineDateAndTime(DateTime date, String timeText) {
     final normalized = timeText.trim().toUpperCase();
 
@@ -462,32 +509,41 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
     return '$hour12:$minute $suffix';
   }
 
+
+  Route<T> _noTransitionRoute<T>(Widget page) {
+    return PageRouteBuilder<T>(
+      pageBuilder: (context, animation, secondaryAnimation) => page,
+      transitionDuration: Duration.zero,
+      reverseTransitionDuration: Duration.zero,
+    );
+  }
+
   void _handleBottomNavTap(int index) {
     switch (index) {
       case 0:
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const AuthGate()),
+          _noTransitionRoute(const InternHomeScreen()),
           (route) => false,
         );
         break;
 
       case 1:
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const TimerScreen()),
+          _noTransitionRoute(const TimerScreen()),
           (route) => route.isFirst,
         );
         break;
 
       case 2:
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const TimesheetScreen()),
+          _noTransitionRoute(const TimesheetScreen()),
           (route) => route.isFirst,
         );
         break;
 
       case 3:
         Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const ProfileScreen()),
+          _noTransitionRoute(const ProfileScreen()),
         );
         break;
     }

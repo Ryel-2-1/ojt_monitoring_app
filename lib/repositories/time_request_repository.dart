@@ -21,6 +21,7 @@ class TimeRequestRepository {
 
   static const String _collection = 'time_requests';
   static const String _attendanceCollection = 'attendance';
+  static const String _usersCollection = 'users';
 
   Future<String> submitRequest({
     required String internUid,
@@ -253,6 +254,11 @@ class TimeRequestRepository {
       );
     }
 
+    await _ensureRequestWithinInternshipDuration(
+      internUid: request.internUid,
+      requestDate: request.requestDate,
+    );
+
     if (request.isCorrection) {
       await _approveCorrectionRequest(
         request: request,
@@ -272,6 +278,55 @@ class TimeRequestRepository {
         approvedEndTime: approvedEndTime,
         approvedStartDateTime: approvedStartDateTime,
         approvedEndDateTime: approvedEndDateTime,
+      );
+    }
+  }
+
+  Future<void> _ensureRequestWithinInternshipDuration({
+    required String internUid,
+    required DateTime requestDate,
+  }) async {
+    final userSnapshot =
+        await _firestoreService.collection(_usersCollection).doc(internUid).get();
+
+    if (!userSnapshot.exists) {
+      throw const TimeRequestReviewException(
+        'Intern profile was not found. This request cannot be approved.',
+      );
+    }
+
+    final data = userSnapshot.data();
+
+    final internshipStartDate = _toDateTime(data?['internshipStartDate']);
+    final internshipEndDate = _toDateTime(data?['internshipEndDate']);
+
+    if (internshipStartDate == null || internshipEndDate == null) {
+      throw const TimeRequestReviewException(
+        'Internship duration is not set for this intern. Please update the intern assignment before approving this request.',
+      );
+    }
+
+    final requested = DateTime(
+      requestDate.year,
+      requestDate.month,
+      requestDate.day,
+    );
+
+    final start = DateTime(
+      internshipStartDate.year,
+      internshipStartDate.month,
+      internshipStartDate.day,
+    );
+
+    final end = DateTime(
+      internshipEndDate.year,
+      internshipEndDate.month,
+      internshipEndDate.day,
+    );
+
+    if (requested.isBefore(start) || requested.isAfter(end)) {
+      throw TimeRequestReviewException(
+        'Requested date is outside the intern\'s internship period (${_formatDate(start)} - ${_formatDate(end)}).',
       );
     }
   }
@@ -646,6 +701,19 @@ class TimeRequestRepository {
   }) {
     return proposedStart.isBefore(existingEnd) &&
         proposedEnd.isAfter(existingStart);
+  }
+
+  DateTime? _toDateTime(dynamic value) {
+    if (value == null) return null;
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    return DateTime.tryParse(value.toString());
+  }
+
+  String _formatDate(DateTime date) {
+    final mm = date.month.toString().padLeft(2, '0');
+    final dd = date.day.toString().padLeft(2, '0');
+    return '$mm/$dd/${date.year}';
   }
 
   DateTime _combineDateAndTime(DateTime date, String timeText) {

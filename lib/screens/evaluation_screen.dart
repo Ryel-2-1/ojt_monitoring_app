@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -33,10 +34,8 @@ class _EvaluationScreenState extends State<EvaluationScreen> {
   Color get _cardColor => _isDarkMode ? const Color(0xFF0F172A) : Colors.white;
   Color get _softCardColor =>
       _isDarkMode ? const Color(0xFF111827) : Colors.white;
-  Color get _fieldColor =>
-      _isDarkMode ? const Color(0xFF111827) : Colors.white;
-  Color get _lineColor =>
-      _isDarkMode ? const Color(0xFF243244) : _border;
+  Color get _fieldColor => _isDarkMode ? const Color(0xFF111827) : Colors.white;
+  Color get _lineColor => _isDarkMode ? const Color(0xFF243244) : _border;
   Color get _titleColor => _isDarkMode ? Colors.white : _darkBlue;
   Color get _bodyColor =>
       _isDarkMode ? const Color(0xFFD1D5DB) : const Color(0xFF4B5563);
@@ -155,11 +154,11 @@ class _EvaluationScreenState extends State<EvaluationScreen> {
                                   itemCount: users.length,
                                   gridDelegate:
                                       const SliverGridDelegateWithFixedCrossAxisCount(
-                                    crossAxisCount: 2,
-                                    crossAxisSpacing: 16,
-                                    mainAxisSpacing: 16,
-                                    childAspectRatio: 2.45,
-                                  ),
+                                        crossAxisCount: 2,
+                                        crossAxisSpacing: 16,
+                                        mainAxisSpacing: 16,
+                                        childAspectRatio: 2.45,
+                                      ),
                                   itemBuilder: (context, index) {
                                     return _buildEvaluationStudentCard(
                                       user: users[index],
@@ -249,11 +248,7 @@ class _EvaluationScreenState extends State<EvaluationScreen> {
                   _searchController.clear();
                   setState(() => _searchQuery = '');
                 },
-                icon: Icon(
-                  Icons.close_rounded,
-                  size: 18,
-                  color: _mutedColor,
-                ),
+                icon: Icon(Icons.close_rounded, size: 18, color: _mutedColor),
               ),
         filled: true,
         fillColor: _fieldColor,
@@ -281,9 +276,9 @@ class _EvaluationScreenState extends State<EvaluationScreen> {
     final requiredHours = user.requiredOjtHours ?? 0;
 
     return FutureBuilder<List<AttendanceModel>>(
-      future: AppServices.of(context)
-          .attendanceRepository
-          .getAttendanceByStudent(user.uid),
+      future: AppServices.of(
+        context,
+      ).attendanceRepository.getAttendanceByStudent(user.uid),
       builder: (context, snapshot) {
         final isLoading = snapshot.connectionState == ConnectionState.waiting;
 
@@ -453,8 +448,9 @@ class _EvaluationScreenState extends State<EvaluationScreen> {
           child: LinearProgressIndicator(
             value: progress,
             minHeight: 8,
-            backgroundColor:
-                _isDarkMode ? const Color(0xFF1F2937) : const Color(0xFFE8EDF5),
+            backgroundColor: _isDarkMode
+                ? const Color(0xFF1F2937)
+                : const Color(0xFFE8EDF5),
             valueColor: AlwaysStoppedAnimation<Color>(
               progress >= 1 ? _success : _primary,
             ),
@@ -500,41 +496,116 @@ class _EvaluationScreenState extends State<EvaluationScreen> {
     required bool canEvaluate,
     required bool isLoading,
   }) {
-    final label = canEvaluate ? 'Evaluate Student' : 'Locked';
-    final helper = requiredHours <= 0
-        ? 'Target hours not set.'
-        : canEvaluate
+    final supervisorUid = AppServices.of(context).authService.currentUser?.uid;
+    final docId = supervisorUid == null ? null : '${user.uid}_$supervisorUid';
+
+    final lockedBg = _isDarkMode
+        ? const Color(0xFF1F2937)
+        : const Color(0xFFE0E0E0);
+
+    final lockedFg = _isDarkMode
+        ? const Color(0xFF9CA3AF)
+        : const Color(0xFF757575);
+
+    if (docId == null) {
+      return _buildEvaluationButtonState(
+        label: 'Unavailable',
+        helper: 'Supervisor account not detected.',
+        icon: Icons.lock_outline_rounded,
+        enabled: false,
+        color: _mutedColor,
+        lockedBg: lockedBg,
+        lockedFg: lockedFg,
+        onPressed: null,
+      );
+    }
+
+    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      future: FirebaseFirestore.instance
+          .collection('evaluations')
+          .doc(docId)
+          .get(),
+      builder: (context, evaluationSnapshot) {
+        final isCheckingEvaluation =
+            evaluationSnapshot.connectionState == ConnectionState.waiting;
+
+        final data = evaluationSnapshot.data?.data();
+        final hasSubmittedEvaluation = data?['status'] == 'submitted';
+
+        final label = isCheckingEvaluation
+            ? 'Checking'
+            : hasSubmittedEvaluation
+            ? 'Evaluated'
+            : canEvaluate
+            ? 'Evaluate Student'
+            : 'Locked';
+
+        final helper = requiredHours <= 0
+            ? 'Target hours not set.'
+            : hasSubmittedEvaluation
+            ? 'Final evaluation already submitted.'
+            : canEvaluate
             ? 'Ready for evaluation.'
             : 'Unlocks at $requiredHours OJT hours.';
 
-    final lockedBg = _isDarkMode ? const Color(0xFF1F2937) : Colors.grey[300];
-    final lockedFg = _isDarkMode ? const Color(0xFF9CA3AF) : Colors.grey[600];
+        final enabled =
+            !isLoading &&
+            !isCheckingEvaluation &&
+            canEvaluate &&
+            !hasSubmittedEvaluation;
 
+        return _buildEvaluationButtonState(
+          label: label,
+          helper: helper,
+          icon: hasSubmittedEvaluation
+              ? Icons.verified_rounded
+              : canEvaluate
+              ? Icons.assignment_turned_in_outlined
+              : Icons.lock_outline_rounded,
+          enabled: enabled,
+          color: hasSubmittedEvaluation
+              ? _success
+              : canEvaluate
+              ? _navy
+              : _mutedColor,
+          lockedBg: lockedBg,
+          lockedFg: lockedFg,
+          onPressed: enabled
+              ? () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => EvaluateScreen(
+                        intern: user,
+                        completedHours: completedHours,
+                        requiredHours: requiredHours,
+                      ),
+                    ),
+                  );
+                }
+              : null,
+        );
+      },
+    );
+  }
+
+  Widget _buildEvaluationButtonState({
+    required String label,
+    required String helper,
+    required IconData icon,
+    required bool enabled,
+    required Color color,
+    required Color lockedBg,
+    required Color lockedFg,
+    required VoidCallback? onPressed,
+  }) {
     return SizedBox(
       width: 210,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           ElevatedButton.icon(
-            onPressed: isLoading || !canEvaluate
-                ? null
-                : () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => EvaluateScreen(
-                          intern: user,
-                          completedHours: completedHours,
-                          requiredHours: requiredHours,
-                        ),
-                      ),
-                    );
-                  },
-            icon: Icon(
-              canEvaluate
-                  ? Icons.assignment_turned_in_outlined
-                  : Icons.lock_outline_rounded,
-              size: 17,
-            ),
+            onPressed: onPressed,
+            icon: Icon(icon, size: 17),
             label: Text(
               label,
               style: GoogleFonts.plusJakartaSans(
@@ -543,8 +614,8 @@ class _EvaluationScreenState extends State<EvaluationScreen> {
               ),
             ),
             style: ElevatedButton.styleFrom(
-              backgroundColor: canEvaluate ? _navy : lockedBg,
-              foregroundColor: canEvaluate ? Colors.white : lockedFg,
+              backgroundColor: enabled ? color : lockedBg,
+              foregroundColor: enabled ? Colors.white : lockedFg,
               disabledBackgroundColor: lockedBg,
               disabledForegroundColor: lockedFg,
               elevation: 0,
@@ -561,7 +632,7 @@ class _EvaluationScreenState extends State<EvaluationScreen> {
             style: GoogleFonts.plusJakartaSans(
               fontSize: 10,
               fontWeight: FontWeight.w700,
-              color: canEvaluate ? _success : _mutedColor,
+              color: enabled || color == _success ? color : _mutedColor,
             ),
           ),
         ],

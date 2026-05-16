@@ -25,7 +25,7 @@ class OfflineAttendanceQueueService {
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
   bool _isSyncing = false;
 
-  Future<void> init() async {
+  Future<int> init() async {
     _box ??= await Hive.openBox<Map>(_boxName);
 
     _connectivitySub?.cancel();
@@ -39,7 +39,30 @@ class OfflineAttendanceQueueService {
       }
     });
 
+    return resynchronizeState();
+  }
+
+  Future<int> resynchronizeState() async {
+    final beforeSync = await pendingCount();
+
+    if (beforeSync <= 0) {
+      return 0;
+    }
+
     await syncPendingActions();
+
+    final afterSync = await pendingCount();
+    final recoveredCount = beforeSync - afterSync;
+
+    if (recoveredCount <= 0) {
+      return 0;
+    }
+
+    debugPrint(
+      'Offline queue: recovered $recoveredCount unsynced attendance action(s).',
+    );
+
+    return recoveredCount;
   }
 
   Future<void> dispose() async {

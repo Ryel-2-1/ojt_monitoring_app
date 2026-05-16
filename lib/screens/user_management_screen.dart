@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -20,6 +21,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
 
   String _searchQuery = '';
   bool _isGeneratingCode = false;
+  bool _isUnenrollingStudent = false;
 
   static const Color _blue = Color(0xFF0D4DB3);
   static const Color _navy = Color(0xFF081F5C);
@@ -31,8 +33,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
 
   Color get _pageBackground =>
       _isDarkMode ? const Color(0xFF0B1120) : const Color(0xFFF4F7F9);
-  Color get _cardColor =>
-      _isDarkMode ? const Color(0xFF111827) : Colors.white;
+  Color get _cardColor => _isDarkMode ? const Color(0xFF111827) : Colors.white;
   Color get _softCardColor =>
       _isDarkMode ? const Color(0xFF0F172A) : const Color(0xFFF8FAFD);
   Color get _borderColor =>
@@ -104,8 +105,9 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                         const SizedBox(width: 16),
                         _buildSummaryPanel(
                           totalStudents: filteredUsers.length,
-                          assignedCount:
-                              filteredUsers.where(_hasGeofence).length,
+                          assignedCount: filteredUsers
+                              .where(_hasGeofence)
+                              .length,
                         ),
                       ],
                     );
@@ -186,18 +188,13 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         const SizedBox(height: 6),
         Text(
           'Manage students who joined your supervisor group, assign their partner company, geofence, OJT hours, and internship dates.',
-          style: GoogleFonts.plusJakartaSans(
-            fontSize: 13,
-            color: _mutedColor,
-          ),
+          style: GoogleFonts.plusJakartaSans(fontSize: 13, color: _mutedColor),
         ),
         const SizedBox(height: 18),
         Container(
           padding: const EdgeInsets.only(bottom: 10),
           decoration: const BoxDecoration(
-            border: Border(
-              bottom: BorderSide(color: _blue, width: 2),
-            ),
+            border: Border(bottom: BorderSide(color: _blue, width: 2)),
           ),
           child: Text(
             'Students',
@@ -300,7 +297,9 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                 if (hasCode)
                   IconButton(
                     tooltip: 'Copy code',
-                    color: _isDarkMode ? Colors.white70 : const Color(0xFF1C2434),
+                    color: _isDarkMode
+                        ? Colors.white70
+                        : const Color(0xFF1C2434),
                     onPressed: () async {
                       await Clipboard.setData(ClipboardData(text: code));
                       if (!mounted) return;
@@ -388,6 +387,126 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     }
   }
 
+  Future<void> _handleUnenrollStudent(UserModel user) async {
+    if (_isUnenrollingStudent) return;
+
+    final supervisorUid = AppServices.of(context).authService.currentUser?.uid;
+
+    if (supervisorUid == null || supervisorUid.trim().isEmpty) {
+      _showSnackBar('Supervisor account not detected. Please sign in again.',
+          isError: true);
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: _cardColor,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          title: Text(
+            'Unenroll student?',
+            style: GoogleFonts.plusJakartaSans(
+              fontWeight: FontWeight.w900,
+              color: _titleColor,
+            ),
+          ),
+          content: Text(
+            'This will remove ${user.fullName} from your active student list and clear their current company, geofence, OJT hours, and internship dates. Attendance, time requests, and evaluations will remain saved.',
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 13,
+              height: 1.45,
+              color: _bodyColor,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: Text(
+                'Cancel',
+                style: GoogleFonts.plusJakartaSans(
+                  fontWeight: FontWeight.w800,
+                  color: _mutedColor,
+                ),
+              ),
+            ),
+            ElevatedButton.icon(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              icon: const Icon(Icons.person_remove_alt_1_outlined, size: 16),
+              label: Text(
+                'Unenroll',
+                style: GoogleFonts.plusJakartaSans(
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _red,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _isUnenrollingStudent = true);
+
+    try {
+      final services = AppServices.of(context);
+      final isClockedIn =
+          await services.attendanceRepository.isCurrentlyClockedIn(user.uid);
+
+      if (isClockedIn) {
+        throw Exception(
+          'This intern is currently clocked in. Please wait until they clock out before unenrolling.',
+        );
+      }
+
+      await services.userRepository.unenrollIntern(
+        internUid: user.uid,
+        supervisorUid: supervisorUid,
+      );
+
+      if (!mounted) return;
+
+      setState(() => _isUnenrollingStudent = false);
+
+      _showSnackBar('${user.fullName} has been unenrolled.');
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() => _isUnenrollingStudent = false);
+
+      _showSnackBar(
+        e.toString().replaceFirst('Exception: ', ''),
+        isError: true,
+      );
+    }
+  }
+
+  void _showSnackBar(String message, {bool isError = false}) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          message,
+          style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w700),
+        ),
+        backgroundColor: isError ? _red : _green,
+      ),
+    );
+  }
+
   Widget _buildStudentListCard(List<UserModel> users) {
     return Container(
       width: double.infinity,
@@ -411,7 +530,10 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
               ),
               const Spacer(),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: _blue.withValues(alpha: _isDarkMode ? 0.18 : 0.10),
                   borderRadius: BorderRadius.circular(999),
@@ -434,7 +556,8 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                 : ListView.separated(
                     itemCount: users.length,
                     separatorBuilder: (_, __) => const SizedBox(height: 10),
-                    itemBuilder: (context, index) => _buildStudentCard(users[index]),
+                    itemBuilder: (context, index) =>
+                        _buildStudentCard(users[index]),
                   ),
           ),
         ],
@@ -486,7 +609,9 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
             children: [
               CircleAvatar(
                 radius: 22,
-                backgroundColor: _blue.withValues(alpha: _isDarkMode ? 0.18 : 0.10),
+                backgroundColor: _blue.withValues(
+                  alpha: _isDarkMode ? 0.18 : 0.10,
+                ),
                 child: Text(
                   initials,
                   style: GoogleFonts.plusJakartaSans(
@@ -593,7 +718,10 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                         ),
                       );
                     },
-                    icon: const Icon(Icons.edit_location_alt_outlined, size: 16),
+                    icon: const Icon(
+                      Icons.edit_location_alt_outlined,
+                      size: 16,
+                    ),
                     label: Text(
                       hasGeofence ? 'Edit Assignment' : 'Assign OJT Details',
                       style: GoogleFonts.plusJakartaSans(
@@ -602,7 +730,9 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                       ),
                     ),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: _isDarkMode ? const Color(0xFF93C5FD) : _blue,
+                      foregroundColor: _isDarkMode
+                          ? const Color(0xFF93C5FD)
+                          : _blue,
                       side: BorderSide(
                         color: _isDarkMode ? const Color(0xFF60A5FA) : _blue,
                       ),
@@ -618,6 +748,42 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
               Expanded(child: _buildEvaluateButton(user)),
             ],
           ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            height: 38,
+            child: OutlinedButton.icon(
+              onPressed: _isUnenrollingStudent
+                  ? null
+                  : () => _handleUnenrollStudent(user),
+              icon: _isUnenrollingStudent
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.person_remove_alt_1_outlined, size: 16),
+              label: Text(
+                _isUnenrollingStudent ? 'Processing...' : 'Unenroll Student',
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: _red,
+                disabledForegroundColor:
+                    _isDarkMode ? const Color(0xFF9CA3AF) : Colors.grey[600],
+                side: BorderSide(
+                  color: _red.withValues(alpha: _isDarkMode ? 0.75 : 0.95),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -625,6 +791,10 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
 
   Widget _buildEvaluateButton(UserModel user) {
     final requiredHours = user.requiredOjtHours ?? 0;
+    final supervisorUid = AppServices.of(context).authService.currentUser?.uid;
+    final evaluationDocId = supervisorUid == null
+        ? null
+        : '${user.uid}_$supervisorUid';
 
     return FutureBuilder<List<AttendanceModel>>(
       future: AppServices.of(
@@ -637,31 +807,68 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
             ? 0.0
             : _calculateCompletedHours(snapshot.data ?? []);
 
-        final canEvaluate = requiredHours > 0 && completedHours >= requiredHours;
+        final canEvaluate =
+            requiredHours > 0 && completedHours >= requiredHours;
 
-        final completedText = isLoading
-            ? 'Checking hours...'
-            : '${completedHours.toStringAsFixed(1)} / $requiredHours hrs';
+        if (evaluationDocId == null) {
+          return _buildEvaluateButtonState(
+            label: 'Unavailable',
+            completedText: 'Supervisor not detected',
+            tooltip: 'Please sign in again.',
+            enabled: false,
+            canEvaluate: false,
+            isSubmitted: false,
+            onPressed: null,
+          );
+        }
 
-        final label = isLoading
-            ? 'Checking Hours'
-            : canEvaluate
+        return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          future: FirebaseFirestore.instance
+              .collection('evaluations')
+              .doc(evaluationDocId)
+              .get(),
+          builder: (context, evaluationSnapshot) {
+            final isCheckingEvaluation =
+                evaluationSnapshot.connectionState == ConnectionState.waiting;
+
+            final evaluationData = evaluationSnapshot.data?.data();
+            final isSubmitted = evaluationData?['status'] == 'submitted';
+
+            final completedText = isLoading
+                ? 'Checking hours...'
+                : isSubmitted
+                ? 'Final evaluation submitted'
+                : '${completedHours.toStringAsFixed(1)} / $requiredHours hrs';
+
+            final label = isLoading || isCheckingEvaluation
+                ? 'Checking'
+                : isSubmitted
+                ? 'Evaluated'
+                : canEvaluate
                 ? 'Evaluate Student'
                 : 'Evaluation Locked';
 
-        return Tooltip(
-          message: canEvaluate
-              ? 'Student has completed the required OJT hours.'
-              : requiredHours <= 0
+            final enabled =
+                !isLoading &&
+                !isCheckingEvaluation &&
+                canEvaluate &&
+                !isSubmitted;
+
+            return _buildEvaluateButtonState(
+              label: label,
+              completedText: completedText,
+              tooltip: isSubmitted
+                  ? 'This student already has a submitted final evaluation.'
+                  : canEvaluate
+                  ? 'Student has completed the required OJT hours.'
+                  : requiredHours <= 0
                   ? 'Required OJT hours are not set.'
                   : 'Evaluation unlocks once total hours reach $requiredHours.',
-          child: SizedBox(
-            height: 42,
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: !canEvaluate || isLoading
-                  ? null
-                  : () {
+              enabled: enabled,
+              canEvaluate: canEvaluate,
+              isSubmitted: isSubmitted,
+              onPressed: enabled
+                  ? () {
                       Navigator.of(context).push(
                         MaterialPageRoute(
                           builder: (_) => EvaluateScreen(
@@ -671,58 +878,84 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                           ),
                         ),
                       );
-                    },
-              icon: Icon(
-                canEvaluate
-                    ? Icons.assignment_outlined
-                    : Icons.lock_outline_rounded,
-                size: 16,
-              ),
-              label: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.plusJakartaSans(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  Text(
-                    completedText,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.plusJakartaSans(
-                      fontSize: 8.5,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: canEvaluate ? _navy : Colors.grey[300],
-                foregroundColor: canEvaluate ? Colors.white : Colors.grey[600],
-                disabledBackgroundColor: _isDarkMode
-                    ? const Color(0xFF374151)
-                    : Colors.grey[300],
-                disabledForegroundColor: _isDarkMode
-                    ? const Color(0xFF9CA3AF)
-                    : Colors.grey[600],
-                elevation: 0,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ),
+                    }
+                  : null,
+            );
+          },
         );
       },
+    );
+  }
+
+  Widget _buildEvaluateButtonState({
+    required String label,
+    required String completedText,
+    required String tooltip,
+    required bool enabled,
+    required bool canEvaluate,
+    required bool isSubmitted,
+    required VoidCallback? onPressed,
+  }) {
+    final activeColor = isSubmitted ? _green : _navy;
+
+    return Tooltip(
+      message: tooltip,
+      child: SizedBox(
+        height: 42,
+        width: double.infinity,
+        child: ElevatedButton.icon(
+          onPressed: onPressed,
+          icon: Icon(
+            isSubmitted
+                ? Icons.verified_rounded
+                : canEvaluate
+                ? Icons.assignment_outlined
+                : Icons.lock_outline_rounded,
+            size: 16,
+          ),
+          label: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              Text(
+                completedText,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 8.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: enabled ? activeColor : Colors.grey[300],
+            foregroundColor: enabled ? Colors.white : Colors.grey[600],
+            disabledBackgroundColor: _isDarkMode
+                ? const Color(0xFF374151)
+                : Colors.grey[300],
+            disabledForegroundColor: _isDarkMode
+                ? const Color(0xFF9CA3AF)
+                : Colors.grey[600],
+            elevation: 0,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -736,7 +969,8 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     for (final log in sorted) {
       if (log.status == AttendanceStatus.clockIn) {
         lastClockIn = log.timestamp;
-      } else if (log.status == AttendanceStatus.clockOut && lastClockIn != null) {
+      } else if (log.status == AttendanceStatus.clockOut &&
+          lastClockIn != null) {
         totalHours += log.timestamp.difference(lastClockIn).inMinutes / 60.0;
         lastClockIn = null;
       }
@@ -850,7 +1084,9 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
     required int assignedCount,
   }) {
     final pendingCount = totalStudents - assignedCount;
-    final assignedPercent = totalStudents == 0 ? 0.0 : assignedCount / totalStudents;
+    final assignedPercent = totalStudents == 0
+        ? 0.0
+        : assignedCount / totalStudents;
 
     return SizedBox(
       width: 240,

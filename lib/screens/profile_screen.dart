@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../main.dart';
+import 'intern_home_screen.dart';
 import '../models/attendance_model.dart';
 import '../models/user_model.dart';
 import 'timer_screen.dart';
@@ -54,27 +55,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
     super.dispose();
   }
 
+
+  Route<T> _noTransitionRoute<T>(Widget page) {
+    return PageRouteBuilder<T>(
+      pageBuilder: (context, animation, secondaryAnimation) => page,
+      transitionDuration: Duration.zero,
+      reverseTransitionDuration: Duration.zero,
+    );
+  }
+
   void _handleBottomNavTap(int index) {
     if (index == _selectedNavIndex) return;
 
     switch (index) {
       case 0:
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const AuthGate()),
+          _noTransitionRoute(const InternHomeScreen()),
           (route) => false,
         );
         break;
 
       case 1:
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const TimerScreen()),
+          _noTransitionRoute(const TimerScreen()),
           (route) => route.isFirst,
         );
         break;
 
       case 2:
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const TimesheetScreen()),
+          _noTransitionRoute(const TimesheetScreen()),
           (route) => route.isFirst,
         );
         break;
@@ -246,7 +256,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       if (goToTimer == true && mounted) {
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const TimerScreen()),
+          _noTransitionRoute(const TimerScreen()),
           (route) => route.isFirst,
         );
       }
@@ -332,7 +342,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (!mounted) return;
 
       navigator.pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const AuthGate()),
+        _noTransitionRoute(const InternHomeScreen()),
         (route) => false,
       );
     } catch (_) {
@@ -382,13 +392,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 : FutureBuilder<UserModel?>(
                     future: services.userRepository.getUserByUid(uid),
                     builder: (context, snapshot) {
-                      if (snapshot.connectionState == ConnectionState.waiting) {
-                        return const Center(
-                          child: CircularProgressIndicator(color: _blue),
-                        );
-                      }
-
-                      if (snapshot.hasError) {
+                      // Do not show a full-screen loading state here.
+                      // Building the profile shell immediately prevents the
+                      // black/white flash when opening Profile from bottom nav.
+                      if (snapshot.hasError && !snapshot.hasData) {
                         return _buildProblemState();
                       }
 
@@ -749,12 +756,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         color: Colors.white,
                       ),
                     )
-                  : Text(
-                      '$progressPercent%',
-                      style: GoogleFonts.dmSans(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w900,
-                        color: Colors.white,
+                  : Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          '$progressPercent%',
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          style: GoogleFonts.dmSans(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.white,
+                          ),
+                        ),
                       ),
                     ),
             ),

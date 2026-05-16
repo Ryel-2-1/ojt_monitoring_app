@@ -22,8 +22,7 @@ class EvaluateScreen extends StatefulWidget {
 }
 
 class _EvaluateScreenState extends State<EvaluateScreen> {
-  final TextEditingController _observationsController =
-      TextEditingController();
+  final TextEditingController _observationsController = TextEditingController();
 
   bool _isSaving = false;
 
@@ -132,9 +131,21 @@ class _EvaluateScreenState extends State<EvaluateScreen> {
       );
 
       final docId = '${widget.intern.uid}_${currentUser.uid}';
+      final docRef = FirebaseFirestore.instance
+          .collection('evaluations')
+          .doc(docId);
 
-      await FirebaseFirestore.instance.collection('evaluations').doc(docId).set(
-        {
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final existingSnapshot = await transaction.get(docRef);
+        final existingData = existingSnapshot.data();
+
+        if (existingData?['status'] == 'submitted') {
+          throw Exception(
+            'This intern already has a submitted final evaluation.',
+          );
+        }
+
+        final evaluationData = <String, dynamic>{
           'internUid': widget.intern.uid,
           'internName': widget.intern.fullName,
           'internEmail': widget.intern.email,
@@ -152,18 +163,22 @@ class _EvaluateScreenState extends State<EvaluateScreen> {
           'finalObservations': _observationsController.text.trim(),
           'status': submit ? 'submitted' : 'draft',
           'updatedAt': FieldValue.serverTimestamp(),
+          if (!existingSnapshot.exists)
+            'createdAt': FieldValue.serverTimestamp(),
           if (submit) 'submittedAt': FieldValue.serverTimestamp(),
-          'createdAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
+        };
+
+        transaction.set(docRef, evaluationData, SetOptions(merge: true));
+      });
 
       if (!mounted) return;
 
       setState(() => _isSaving = false);
 
       _showSnackBar(
-        submit ? 'Evaluation submitted successfully.' : 'Evaluation draft saved.',
+        submit
+            ? 'Evaluation submitted successfully.'
+            : 'Evaluation draft saved.',
       );
 
       if (submit && mounted) {
@@ -243,9 +258,7 @@ class _EvaluateScreenState extends State<EvaluateScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 22),
       decoration: const BoxDecoration(
         color: _bg,
-        border: Border(
-          bottom: BorderSide(color: Color(0xFFE9EEF5)),
-        ),
+        border: Border(bottom: BorderSide(color: Color(0xFFE9EEF5))),
       ),
       child: Row(
         children: [
@@ -508,10 +521,7 @@ class _EvaluateScreenState extends State<EvaluateScreen> {
     );
   }
 
-  Widget _buildInfoPill({
-    required String label,
-    required String value,
-  }) {
+  Widget _buildInfoPill({required String label, required String value}) {
     return Container(
       constraints: const BoxConstraints(minWidth: 140),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -651,11 +661,7 @@ class _EvaluateScreenState extends State<EvaluateScreen> {
                   ),
                 ),
               ),
-              Icon(
-                criterion.icon,
-                size: 18,
-                color: _primary.withOpacity(0.55),
-              ),
+              Icon(criterion.icon, size: 18, color: _primary.withOpacity(0.55)),
             ],
           ),
           const SizedBox(height: 4),
@@ -826,10 +832,7 @@ class _EvaluateScreenState extends State<EvaluateScreen> {
       );
     }
 
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.end,
-      children: buttons,
-    );
+    return Row(mainAxisAlignment: MainAxisAlignment.end, children: buttons);
   }
 
   String _cleanText(String? value, {required String fallback}) {

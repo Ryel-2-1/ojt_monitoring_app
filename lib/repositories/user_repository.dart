@@ -311,6 +311,75 @@ class UserRepository {
     });
   }
 
+  Future<void> unenrollIntern({
+    required String internUid,
+    required String supervisorUid,
+  }) async {
+    final intern = await getUserByUid(internUid);
+
+    if (intern == null) {
+      throw Exception('Intern profile not found.');
+    }
+
+    if (intern.role != UserRole.intern) {
+      throw Exception('Only intern accounts can be unenrolled.');
+    }
+
+    if (intern.supervisorUid?.trim() != supervisorUid.trim()) {
+      throw Exception('This intern is not assigned to your supervisor account.');
+    }
+
+    final batch = FirebaseFirestore.instance.batch();
+
+    final internRef = _firestoreService.collection(collectionPath).doc(internUid);
+    batch.update(internRef, {
+      'supervisorUid': null,
+      'supervisorName': null,
+      'supervisorEmail': null,
+      'joinedSupervisorAt': null,
+      'enrollmentId': null,
+      'enrollmentStatus': 'unenrolled',
+      'companyId': null,
+      'companyName': null,
+      'companyAddress': null,
+      'assignedLatitude': null,
+      'assignedLongitude': null,
+      'allowedRadius': null,
+      'requiredOjtHours': null,
+      'internshipStartDate': null,
+      'internshipEndDate': null,
+      'unenrolledAt': FieldValue.serverTimestamp(),
+      'unenrolledBySupervisorUid': supervisorUid,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    final enrollmentId = intern.enrollmentId?.trim();
+    if (enrollmentId != null && enrollmentId.isNotEmpty) {
+      final enrollmentRef = FirebaseFirestore.instance
+          .collection('enrollments')
+          .doc(enrollmentId);
+
+      batch.set(
+        enrollmentRef,
+        {
+          'status': 'unenrolled',
+          'internUid': internUid,
+          'supervisorUid': supervisorUid,
+          'unenrolledAt': FieldValue.serverTimestamp(),
+          'unenrolledBySupervisorUid': supervisorUid,
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+    }
+
+    final liveLocationRef =
+        FirebaseFirestore.instance.collection('live_locations').doc(internUid);
+    batch.delete(liveLocationRef);
+
+    await batch.commit();
+  }
+
   String _generateCode() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     final random = Random.secure();

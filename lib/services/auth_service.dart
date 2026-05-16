@@ -11,10 +11,7 @@ class AuthException implements Exception {
   final String code;
   final String message;
 
-  const AuthException({
-    required this.code,
-    required this.message,
-  });
+  const AuthException({required this.code, required this.message});
 
   @override
   String toString() => message;
@@ -30,8 +27,14 @@ class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final UserRepository _userRepository = UserRepository();
 
+  // Web OAuth client from google-services.json.
+  // Required by Firebase Auth on Android to reliably return a Google idToken.
+  static const String _googleWebClientId =
+      '910935241512-4ehrb9fidqg4lvfgjdce24mosiae8a9c.apps.googleusercontent.com';
+
   final GoogleSignIn _googleSignIn = GoogleSignIn(
     scopes: ['email', 'profile'],
+    serverClientId: _googleWebClientId,
   );
 
   Stream<User?> get authStateChanges => _auth.authStateChanges();
@@ -65,10 +68,7 @@ class AuthService {
     } on AuthException {
       rethrow;
     } on FirebaseAuthException catch (e) {
-      throw AuthException(
-        code: e.code,
-        message: _mapAuthError(e.code),
-      );
+      throw AuthException(code: e.code, message: _mapAuthError(e.code));
     } catch (_) {
       throw const AuthException(
         code: 'unknown',
@@ -114,6 +114,9 @@ class AuthService {
 
         credential = await _auth.signInWithPopup(provider);
       } else {
+        // Clear any stale Google session so the account picker/credential is fresh.
+        await _googleSignIn.signOut();
+
         final googleUser = await _googleSignIn.signIn();
 
         if (googleUser == null) {
@@ -121,6 +124,14 @@ class AuthService {
         }
 
         final googleAuth = await googleUser.authentication;
+
+        if (googleAuth.idToken == null) {
+          throw const AuthException(
+            code: 'missing-google-token',
+            message:
+                'Google Sign-In did not return an ID token. Please check your Firebase SHA-1/SHA-256 setup and google-services.json.',
+          );
+        }
 
         final oauthCredential = GoogleAuthProvider.credential(
           accessToken: googleAuth.accessToken,
@@ -147,7 +158,9 @@ class AuthService {
         userModel = UserModel(
           uid: firebaseUser.uid,
           email: firebaseUser.email ?? '',
-          fullName: firebaseUser.displayName ?? 'User',
+          fullName: firebaseUser.displayName?.trim().isNotEmpty == true
+              ? firebaseUser.displayName!.trim()
+              : 'User',
           role: kIsWeb ? UserRole.supervisor : UserRole.intern,
         );
 
@@ -162,14 +175,11 @@ class AuthService {
     } on AuthException {
       rethrow;
     } on FirebaseAuthException catch (e) {
+      throw AuthException(code: e.code, message: _mapAuthError(e.code));
+    } catch (e) {
       throw AuthException(
-        code: e.code,
-        message: _mapAuthError(e.code),
-      );
-    } catch (_) {
-      throw const AuthException(
         code: 'unknown',
-        message: 'Google sign-in failed. Please try again.',
+        message: 'Google sign-in failed. Please try again. ${e.toString()}',
       );
     }
   }
@@ -247,10 +257,7 @@ class AuthService {
     } on AuthException {
       rethrow;
     } on FirebaseAuthException catch (e) {
-      throw AuthException(
-        code: e.code,
-        message: _mapAuthError(e.code),
-      );
+      throw AuthException(code: e.code, message: _mapAuthError(e.code));
     } catch (_) {
       throw const AuthException(
         code: 'unknown',

@@ -24,11 +24,63 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
   String _searchQuery = '';
 
   static const LatLng _fallbackCenter = LatLng(14.5995, 120.9842);
+  static const Duration _liveLocationFreshnessWindow = Duration(minutes: 5);
+
+  bool get _isDarkMode => AppServices.of(context).themeController.isDarkMode;
+
+  Color get _panelColor =>
+      _isDarkMode ? const Color(0xFF111827) : const Color(0xFFF7F9FC);
+
+  Color get _cardColor =>
+      _isDarkMode ? const Color(0xFF0F172A) : Colors.white;
+
+  Color get _inputColor =>
+      _isDarkMode ? const Color(0xFF0F172A) : Colors.white;
+
+  Color get _borderColor =>
+      _isDarkMode ? const Color(0xFF243244) : const Color(0xFFE7ECF3);
+
+  Color get _primaryText =>
+      _isDarkMode ? const Color(0xFFF9FAFB) : const Color(0xFF0A2351);
+
+  Color get _bodyText =>
+      _isDarkMode ? const Color(0xFFD1D5DB) : const Color(0xFF1C2434);
+
+  Color get _mutedText =>
+      _isDarkMode ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280);
 
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  bool _isFreshLiveLocation(LiveLocationModel location) {
+    if (!location.isClockedIn) return false;
+
+    final age = DateTime.now().difference(location.updatedAt);
+
+    if (age.isNegative) return true;
+
+    return age <= _liveLocationFreshnessWindow;
+  }
+
+  String _formatLastSeen(DateTime updatedAt) {
+    final age = DateTime.now().difference(updatedAt);
+
+    if (age.isNegative || age.inSeconds < 30) {
+      return 'Live now';
+    }
+
+    if (age.inMinutes < 1) {
+      return 'Updated ${age.inSeconds}s ago';
+    }
+
+    if (age.inMinutes < 60) {
+      return 'Updated ${age.inMinutes}m ago';
+    }
+
+    return 'Updated ${age.inHours}h ago';
   }
 
   @override
@@ -39,105 +91,133 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
     final liveLocationRepo = services.liveLocationRepository;
     final supervisorUid = services.authService.currentUser?.uid;
 
-    return Padding(
-      padding: const EdgeInsets.all(28),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildTopToolbar(),
-          const SizedBox(height: 18),
-          Expanded(
-            child: StreamBuilder<List<UserModel>>(
-              stream: userRepo.streamInternUsers(
-                supervisorUid: supervisorUid,
-                includeUnassigned: false,
-              ),
-              builder: (context, userSnapshot) {
-                if (userSnapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                if (userSnapshot.hasError) {
-                  return _buildErrorState(
-                    'Failed to load interns. Please check permissions and try again.',
-                  );
-                }
-
-                final assignedUsers = userSnapshot.data ?? [];
-
-                return StreamBuilder<Map<String, AttendanceModel>>(
-                  stream: attendanceRepo.streamLatestLogsByUser(),
-                  builder: (context, logSnapshot) {
-                    if (logSnapshot.connectionState ==
+    return AnimatedBuilder(
+      animation: services.themeController,
+      builder: (context, _) {
+        return Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildTopToolbar(),
+              const SizedBox(height: 18),
+              Expanded(
+                child: StreamBuilder<List<UserModel>>(
+                  stream: userRepo.streamInternUsers(
+                    supervisorUid: supervisorUid,
+                    includeUnassigned: false,
+                  ),
+                  builder: (context, userSnapshot) {
+                    if (userSnapshot.connectionState ==
                         ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-
-                    if (logSnapshot.hasError) {
-                      return _buildErrorState(
-                        'Failed to load attendance activity. Please check permissions and try again.',
+                      return Center(
+                        child: CircularProgressIndicator(
+                          color: _isDarkMode ? Colors.white : null,
+                        ),
                       );
                     }
 
-                    final latestLogs = logSnapshot.data ?? {};
-                    final visibleUsers = _filterUsers(
-                      assignedUsers,
-                      latestLogs,
-                    );
-                    final activeUsers = visibleUsers.where((user) {
-                      final latest = latestLogs[user.uid];
-                      return latest?.status == AttendanceStatus.clockIn;
-                    }).toList();
+                    if (userSnapshot.hasError) {
+                      return _buildErrorState(
+                        'Failed to load interns. Please check permissions and try again.',
+                      );
+                    }
 
-                    return StreamBuilder<List<LiveLocationModel>>(
-                      stream: liveLocationRepo.streamActiveLocations(),
-                      builder: (context, locationSnapshot) {
-                        if (locationSnapshot.connectionState ==
+                    final assignedUsers = userSnapshot.data ?? [];
+
+                    return StreamBuilder<Map<String, AttendanceModel>>(
+                      stream: attendanceRepo.streamLatestLogsByUser(),
+                      builder: (context, logSnapshot) {
+                        if (logSnapshot.connectionState ==
                             ConnectionState.waiting) {
-                          return const Center(
-                            child: CircularProgressIndicator(),
+                          return Center(
+                            child: CircularProgressIndicator(
+                              color: _isDarkMode ? Colors.white : null,
+                            ),
                           );
                         }
 
-                        if (locationSnapshot.hasError) {
+                        if (logSnapshot.hasError) {
                           return _buildErrorState(
-                            'Failed to load live locations. Please check permissions and try again.',
+                            'Failed to load attendance activity. Please check permissions and try again.',
                           );
                         }
 
-                        final allLocations = locationSnapshot.data ?? [];
-                        final activeUids = activeUsers
-                            .map((u) => u.uid)
-                            .toSet();
+                        final latestLogs = logSnapshot.data ?? {};
+                        final visibleUsers = _filterUsers(
+                          assignedUsers,
+                          latestLogs,
+                        );
 
-                        final filteredLocations = allLocations.where((
-                          location,
-                        ) {
-                          if (!activeUids.contains(location.uid)) return false;
+                        return StreamBuilder<List<LiveLocationModel>>(
+                          stream: liveLocationRepo.streamActiveLocations(),
+                          builder: (context, locationSnapshot) {
+                            if (locationSnapshot.connectionState ==
+                                ConnectionState.waiting) {
+                              return Center(
+                                child: CircularProgressIndicator(
+                                  color: _isDarkMode ? Colors.white : null,
+                                ),
+                              );
+                            }
 
-                          final q = _searchQuery.trim().toLowerCase();
-                          if (q.isEmpty) return true;
+                            if (locationSnapshot.hasError) {
+                              return _buildErrorState(
+                                'Failed to load live locations. Please check permissions and try again.',
+                              );
+                            }
 
-                          return location.fullName.toLowerCase().contains(q) ||
-                              location.email.toLowerCase().contains(q);
-                        }).toList();
+                            final allLocations = locationSnapshot.data ?? [];
+                            final assignedUidSet = visibleUsers
+                                .map((user) => user.uid)
+                                .toSet();
 
-                        return _buildMonitoringBody(
-                          totalAssigned: assignedUsers.length,
-                          visibleUsers: visibleUsers,
-                          activeUsers: activeUsers,
-                          filteredLocations: filteredLocations,
-                          latestLogs: latestLogs,
+                            final filteredLocations = allLocations.where((
+                              location,
+                            ) {
+                              if (!assignedUidSet.contains(location.uid)) {
+                                return false;
+                              }
+
+                              if (!_isFreshLiveLocation(location)) {
+                                return false;
+                              }
+
+                              final q = _searchQuery.trim().toLowerCase();
+                              if (q.isEmpty) return true;
+
+                              return location.fullName
+                                      .toLowerCase()
+                                      .contains(q) ||
+                                  location.email.toLowerCase().contains(q);
+                            }).toList();
+
+                            final freshLiveUidSet = filteredLocations
+                                .map((location) => location.uid)
+                                .toSet();
+
+                            final activeUsers = visibleUsers.where((user) {
+                              return freshLiveUidSet.contains(user.uid);
+                            }).toList();
+
+                            return _buildMonitoringBody(
+                              totalAssigned: assignedUsers.length,
+                              visibleUsers: visibleUsers,
+                              activeUsers: activeUsers,
+                              filteredLocations: filteredLocations,
+                              latestLogs: latestLogs,
+                            );
+                          },
                         );
                       },
                     );
                   },
-                );
-              },
-            ),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -161,27 +241,28 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
           totalAssigned: totalAssigned,
           visibleUsers: visibleUsers,
           activeUsers: activeUsers,
+          filteredLocations: filteredLocations,
           latestLogs: latestLogs,
         );
 
         return Container(
           decoration: BoxDecoration(
-            color: const Color(0xFFF7F9FC),
+            color: _panelColor,
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: const Color(0xFFE7ECF3)),
+            border: Border.all(color: _borderColor),
           ),
           child: useStackedLayout
               ? Column(
                   children: [
                     Expanded(flex: 3, child: mapSection),
-                    Container(height: 1, color: const Color(0xFFE7ECF3)),
+                    Container(height: 1, color: _borderColor),
                     Expanded(flex: 2, child: sessionSection),
                   ],
                 )
               : Row(
                   children: [
                     Expanded(flex: 5, child: mapSection),
-                    Container(width: 1, color: const Color(0xFFE7ECF3)),
+                    Container(width: 1, color: _borderColor),
                     SizedBox(width: 390, child: sessionSection),
                   ],
                 ),
@@ -215,6 +296,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
     required int totalAssigned,
     required List<UserModel> visibleUsers,
     required List<UserModel> activeUsers,
+    required List<LiveLocationModel> filteredLocations,
     required Map<String, AttendanceModel> latestLogs,
   }) {
     return Padding(
@@ -224,7 +306,13 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
         children: [
           _buildActiveSessionsHeader(activeUsers.length),
           const SizedBox(height: 14),
-          Expanded(child: _buildActiveSessionsList(activeUsers, latestLogs)),
+          Expanded(
+            child: _buildActiveSessionsList(
+              activeUsers,
+              filteredLocations,
+              latestLogs,
+            ),
+          ),
           const SizedBox(height: 16),
           _buildCoverageCard(
             activeCount: activeUsers.length,
@@ -245,24 +333,28 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
           width: narrow ? double.infinity : 420,
           child: TextField(
             controller: _searchController,
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 13,
+              color: _bodyText,
+            ),
             onChanged: (value) => setState(() => _searchQuery = value),
             decoration: InputDecoration(
               hintText: 'Search interns by name, email, or company...',
               hintStyle: GoogleFonts.plusJakartaSans(
                 fontSize: 13,
-                color: Colors.grey[500],
+                color: _mutedText,
               ),
               prefixIcon: Icon(Icons.search, size: 20, color: Colors.grey[500]),
               filled: true,
-              fillColor: Colors.white,
+              fillColor: _inputColor,
               contentPadding: const EdgeInsets.symmetric(vertical: 0),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
-                borderSide: const BorderSide(color: Color(0xFFE7ECF3)),
+                borderSide: BorderSide(color: _borderColor),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
-                borderSide: const BorderSide(color: Color(0xFFE7ECF3)),
+                borderSide: BorderSide(color: _borderColor),
               ),
             ),
           ),
@@ -273,7 +365,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
           style: GoogleFonts.plusJakartaSans(
             fontSize: 12,
             fontWeight: FontWeight.w600,
-            color: Colors.grey[600],
+            color: _mutedText,
           ),
         );
 
@@ -307,7 +399,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: const Color(0xFFEAF2FF),
+        color: _isDarkMode ? const Color(0xFF0F2A5A) : const Color(0xFFEAF2FF),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
@@ -371,11 +463,13 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: _cardColor,
           borderRadius: BorderRadius.circular(14),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
+              color: _isDarkMode
+                  ? Colors.black.withValues(alpha: 0.20)
+                  : Colors.black.withValues(alpha: 0.04),
               blurRadius: 10,
               offset: const Offset(0, 4),
             ),
@@ -394,7 +488,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 10,
                     fontWeight: FontWeight.w700,
-                    color: Colors.grey[500],
+                    color: _mutedText,
                     letterSpacing: 0.6,
                   ),
                 ),
@@ -404,7 +498,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 18,
                     fontWeight: FontWeight.w800,
-                    color: const Color(0xFF0A2351),
+                    color: _primaryText,
                   ),
                 ),
               ],
@@ -479,13 +573,15 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
           if (filteredLocations.isEmpty)
             Positioned.fill(
               child: Container(
-                color: Colors.white.withValues(alpha: 0.55),
+                color: _isDarkMode
+                    ? Colors.black.withValues(alpha: 0.46)
+                    : Colors.white.withValues(alpha: 0.55),
                 child: Center(
                   child: Text(
-                    'No active live location updates yet.',
+                    'No fresh live location updates. Stale updates older than 5 minutes are hidden.',
                     style: GoogleFonts.plusJakartaSans(
                       fontSize: 13,
-                      color: Colors.grey[600],
+                      color: _mutedText,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -573,7 +669,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
             style: GoogleFonts.plusJakartaSans(
               fontSize: 10,
               fontWeight: FontWeight.w700,
-              color: const Color(0xFF0A2351),
+              color: _primaryText,
             ),
           ),
         ),
@@ -584,7 +680,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
           decoration: BoxDecoration(
             color: const Color(0xFF0D4DB3),
             shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 3),
+            border: Border.all(color: _cardColor, width: 3),
             boxShadow: [
               BoxShadow(
                 color: const Color(0xFF0D4DB3).withValues(alpha: 0.25),
@@ -610,14 +706,16 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
         width: 46,
         height: 46,
         decoration: BoxDecoration(
-          color: filled ? const Color(0xFF0D4DB3) : Colors.white,
+          color: filled ? const Color(0xFF0D4DB3) : _cardColor,
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: filled ? const Color(0xFF0D4DB3) : const Color(0xFFE7ECF3),
+            color: filled ? const Color(0xFF0D4DB3) : _borderColor,
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
+              color: _isDarkMode
+                  ? Colors.black.withValues(alpha: 0.20)
+                  : Colors.black.withValues(alpha: 0.04),
               blurRadius: 10,
               offset: const Offset(0, 4),
             ),
@@ -626,7 +724,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
         child: Icon(
           icon,
           size: 22,
-          color: filled ? Colors.white : const Color(0xFF0A2351),
+          color: filled ? Colors.white : _primaryText,
         ),
       ),
     );
@@ -643,14 +741,14 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
             style: GoogleFonts.plusJakartaSans(
               fontSize: 22,
               fontWeight: FontWeight.w800,
-              color: const Color(0xFF0A2351),
+              color: _primaryText,
             ),
           ),
         ),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
-            color: const Color(0xFFEAF2FF),
+            color: _isDarkMode ? const Color(0xFF0F2A5A) : const Color(0xFFEAF2FF),
             borderRadius: BorderRadius.circular(999),
           ),
           child: Text(
@@ -668,6 +766,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
 
   Widget _buildActiveSessionsList(
     List<UserModel> activeUsers,
+    List<LiveLocationModel> filteredLocations,
     Map<String, AttendanceModel> latestLogs,
   ) {
     if (activeUsers.isEmpty) {
@@ -676,7 +775,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
           'No active sessions right now.',
           style: GoogleFonts.plusJakartaSans(
             fontSize: 13,
-            color: Colors.grey[500],
+            color: _mutedText,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -690,11 +789,23 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
         final user = activeUsers[index];
         final latest = latestLogs[user.uid];
 
+        LiveLocationModel? liveLocation;
+        for (final location in filteredLocations) {
+          if (location.uid == user.uid) {
+            liveLocation = location;
+            break;
+          }
+        }
+
         final hasGeofence =
             user.assignedLatitude != null &&
             user.assignedLongitude != null &&
             user.allowedRadius != null &&
             user.allowedRadius! > 0;
+
+        final lastSeenText = liveLocation == null
+            ? 'No fresh live update'
+            : _formatLastSeen(liveLocation.updatedAt);
 
         return _buildSessionCard(
           initials: _initialsOf(user.fullName),
@@ -703,9 +814,11 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
               ? user.companyName!.trim()
               : user.email,
           detail: hasGeofence
-              ? '${user.allowedRadius!.toStringAsFixed(0)}m geofence configured'
-              : 'No geofence assigned',
-          clockInTime: latest?.timestamp,
+              ? '${user.allowedRadius!.toStringAsFixed(0)}m geofence configured • $lastSeenText'
+              : 'No geofence assigned • $lastSeenText',
+          clockInTime: latest?.status == AttendanceStatus.clockIn
+              ? latest?.timestamp
+              : liveLocation?.updatedAt,
           statusColor: const Color(0xFF14A44D),
         );
       },
@@ -723,9 +836,9 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _cardColor,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE7ECF3)),
+        border: Border.all(color: _borderColor),
       ),
       child: Row(
         children: [
@@ -733,7 +846,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
             children: [
               CircleAvatar(
                 radius: 20,
-                backgroundColor: const Color(0xFFE8F0FF),
+                backgroundColor: _isDarkMode ? const Color(0xFF1E3A5F) : const Color(0xFFE8F0FF),
                 child: Text(
                   initials,
                   style: GoogleFonts.plusJakartaSans(
@@ -752,7 +865,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                   decoration: BoxDecoration(
                     color: statusColor,
                     shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 2),
+                    border: Border.all(color: _cardColor, width: 2),
                   ),
                 ),
               ),
@@ -770,7 +883,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
-                    color: const Color(0xFF1C2434),
+                    color: _bodyText,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -780,7 +893,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                   overflow: TextOverflow.ellipsis,
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 11,
-                    color: Colors.grey[600],
+                    color: _mutedText,
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -790,7 +903,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                   overflow: TextOverflow.ellipsis,
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 10,
-                    color: Colors.grey[500],
+                    color: _mutedText,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -923,11 +1036,14 @@ class _LiveSessionTimeChipState extends State<_LiveSessionTimeChip> {
   @override
   Widget build(BuildContext context) {
     final duration = _safeElapsed(widget.clockInTime);
+    final isDarkMode = AppServices.of(context).themeController.isDarkMode;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: widget.statusColor.withValues(alpha: 0.10),
+        color: isDarkMode
+            ? widget.statusColor.withValues(alpha: 0.16)
+            : widget.statusColor.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(

@@ -361,26 +361,32 @@ class _InternHomeScreenState extends State<InternHomeScreen> {
     return total;
   }
 
+  Route<T> _noTransitionRoute<T>(Widget page) {
+    return PageRouteBuilder<T>(
+      pageBuilder: (context, animation, secondaryAnimation) => page,
+      transitionDuration: Duration.zero,
+      reverseTransitionDuration: Duration.zero,
+    );
+  }
+
   void _handleBottomNavTap(int index) {
     if (index == _selectedNavIndex) return;
 
     switch (index) {
       case 1:
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const TimerScreen()),
+          _noTransitionRoute(const TimerScreen()),
           (route) => route.isFirst,
         );
         break;
       case 2:
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const TimesheetScreen()),
+          _noTransitionRoute(const TimesheetScreen()),
           (route) => route.isFirst,
         );
         break;
       case 3:
-        Navigator.of(
-          context,
-        ).push(MaterialPageRoute(builder: (_) => const ProfileScreen()));
+        Navigator.of(context).push(_noTransitionRoute(const ProfileScreen()));
         break;
     }
   }
@@ -1017,7 +1023,7 @@ class _InternHomeScreenState extends State<InternHomeScreen> {
       child: ElevatedButton.icon(
         onPressed: () {
           Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const TimerScreen()),
+            _noTransitionRoute(const TimerScreen()),
             (route) => route.isFirst,
           );
         },
@@ -1046,7 +1052,7 @@ class _InternHomeScreenState extends State<InternHomeScreen> {
         onPressed: () {
           Navigator.of(
             context,
-          ).push(MaterialPageRoute(builder: (_) => const TimeRequestScreen()));
+          ).push(_noTransitionRoute(const TimeRequestScreen()));
         },
         icon: const Icon(Icons.edit_calendar_outlined, size: 18),
         label: Text(

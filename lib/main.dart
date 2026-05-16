@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'firebase_options.dart';
 
-
 import 'models/user_model.dart';
 
 import 'repositories/attendance_repository.dart';
@@ -27,9 +26,7 @@ import 'services/offline_attendance_queue_service.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   await Hive.initFlutter();
 
@@ -82,61 +79,64 @@ class _OjtAppState extends State<OjtApp> {
   late final AppThemeController _themeController;
 
   late final Future<void> _appInitFuture;
+  bool _recoveredUnsyncedDataOnStartup = false;
 
   @override
-void initState() {
-  super.initState();
+  void initState() {
+    super.initState();
 
-  _authService = AuthService();
-  _studentRepository = StudentRepository();
-  _attendanceRepository = AttendanceRepository();
-  _userRepository = UserRepository();
-  _roleRepository = RoleRepository();
-  _liveLocationRepository = LiveLocationRepository();
-  _timeRequestRepository = TimeRequestRepository();
-  _companyRepository = CompanyRepository();
-  _enrollmentRepository = EnrollmentRepository();
-  _themeController = AppThemeController();
+    _authService = AuthService();
+    _studentRepository = StudentRepository();
+    _attendanceRepository = AttendanceRepository();
+    _userRepository = UserRepository();
+    _roleRepository = RoleRepository();
+    _liveLocationRepository = LiveLocationRepository();
+    _timeRequestRepository = TimeRequestRepository();
+    _companyRepository = CompanyRepository();
+    _enrollmentRepository = EnrollmentRepository();
+    _themeController = AppThemeController();
 
-  _offlineAttendanceQueueService = OfflineAttendanceQueueService(
-    attendanceRepository: _attendanceRepository,
-    liveLocationRepository: _liveLocationRepository,
-  );
+    _offlineAttendanceQueueService = OfflineAttendanceQueueService(
+      attendanceRepository: _attendanceRepository,
+      liveLocationRepository: _liveLocationRepository,
+    );
 
-  _appInitFuture = _initializeAppServices();
-}
+    _appInitFuture = _initializeAppServices();
+  }
 
-Future<void> _initializeAppServices() async {
-  await _themeController.init().timeout(
-    const Duration(seconds: 5),
-    onTimeout: () {
-      debugPrint(
-        'Theme settings init timed out. Continuing with default theme.',
-      );
-    },
-  );
-
-  if (!kIsWeb) {
-    await _offlineAttendanceQueueService.init().timeout(
-      const Duration(seconds: 8),
+  Future<void> _initializeAppServices() async {
+    await _themeController.init().timeout(
+      const Duration(seconds: 5),
       onTimeout: () {
         debugPrint(
-          'Offline attendance storage init timed out. Continuing app startup.',
+          'Theme settings init timed out. Continuing with default theme.',
         );
       },
     );
-  } else {
-    debugPrint('Skipping offline attendance queue init on web.');
-  }
-}
 
+    if (!kIsWeb) {
+      final recoveredCount = await _offlineAttendanceQueueService.init().timeout(
+        const Duration(seconds: 8),
+        onTimeout: () {
+          debugPrint(
+            'Offline attendance storage init timed out. Continuing app startup.',
+          );
+          return 0;
+        },
+      );
+
+      _recoveredUnsyncedDataOnStartup = recoveredCount > 0;
+    } else {
+      debugPrint('Skipping offline attendance queue init on web.');
+    }
+  }
 
   @override
-void dispose() {
-  _offlineAttendanceQueueService.dispose();
-  _themeController.dispose();
-  super.dispose();
-}
+  void dispose() {
+    _offlineAttendanceQueueService.dispose();
+    _themeController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -190,13 +190,67 @@ void dispose() {
                   );
                 }
 
-                return const AuthGate();
+                return StartupResyncNotifier(
+                  showRecoveredToast: _recoveredUnsyncedDataOnStartup,
+                  child: const AuthGate(),
+                );
               },
             ),
           );
         },
       ),
     );
+  }
+}
+
+class StartupResyncNotifier extends StatefulWidget {
+  final bool showRecoveredToast;
+  final Widget child;
+
+  const StartupResyncNotifier({
+    super.key,
+    required this.showRecoveredToast,
+    required this.child,
+  });
+
+  @override
+  State<StartupResyncNotifier> createState() => _StartupResyncNotifierState();
+}
+
+class _StartupResyncNotifierState extends State<StartupResyncNotifier> {
+  bool _hasShownToast = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    if (!widget.showRecoveredToast || _hasShownToast) return;
+
+    _hasShownToast = true;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+            'Unsynced data detected and recovered.',
+            style: TextStyle(fontWeight: FontWeight.w700),
+          ),
+          backgroundColor: const Color(0xFF14A44D),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 4),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      );
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return widget.child;
   }
 }
 
@@ -392,10 +446,7 @@ class AppStartupLoadingScreen extends StatelessWidget {
 class AppLoadingScreen extends StatelessWidget {
   final String message;
 
-  const AppLoadingScreen({
-    super.key,
-    required this.message,
-  });
+  const AppLoadingScreen({super.key, required this.message});
 
   @override
   Widget build(BuildContext context) {
@@ -420,9 +471,7 @@ class AppLoadingScreen extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const CircularProgressIndicator(
-                color: Color(0xFF0D4DB3),
-              ),
+              const CircularProgressIndicator(color: Color(0xFF0D4DB3)),
               const SizedBox(height: 18),
               Text(
                 message,
@@ -444,10 +493,7 @@ class AppLoadingScreen extends StatelessWidget {
 class AppStartupErrorScreen extends StatelessWidget {
   final String error;
 
-  const AppStartupErrorScreen({
-    super.key,
-    required this.error,
-  });
+  const AppStartupErrorScreen({super.key, required this.error});
 
   @override
   Widget build(BuildContext context) {
