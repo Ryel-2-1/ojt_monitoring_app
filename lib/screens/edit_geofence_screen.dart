@@ -44,6 +44,36 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
   DateTime? _internshipStartDate;
   DateTime? _internshipEndDate;
 
+  bool get _isDarkMode => AppServices.of(context).themeController.isDarkMode;
+
+  Color get _pageBackground =>
+      _isDarkMode ? const Color(0xFF0B1120) : const Color(0xFFF5F7FA);
+
+  Color get _cardColor => _isDarkMode ? const Color(0xFF111827) : Colors.white;
+
+  Color get _softCardColor =>
+      _isDarkMode ? const Color(0xFF0F172A) : const Color(0xFFF8FAFD);
+
+  Color get _inputFillColor =>
+      _isDarkMode ? const Color(0xFF1F2937) : const Color(0xFFF5F7FA);
+
+  Color get _borderColor =>
+      _isDarkMode ? const Color(0xFF243244) : const Color(0xFFE7ECF3);
+
+  Color get _titleColor => _isDarkMode ? Colors.white : const Color(0xFF0A2351);
+
+  Color get _bodyColor =>
+      _isDarkMode ? const Color(0xFFE5E7EB) : const Color(0xFF1C2434);
+
+  Color get _mutedColor =>
+      _isDarkMode ? const Color(0xFF9CA3AF) : const Color(0xFF6B7280);
+
+  TextStyle get _fieldTextStyle => GoogleFonts.plusJakartaSans(
+        fontSize: 13,
+        fontWeight: FontWeight.w700,
+        color: _bodyColor,
+      );
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -128,14 +158,32 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
     return InputDecoration(
       hintText: hint,
       hintStyle: GoogleFonts.plusJakartaSans(
-        color: Colors.grey[400],
+        color: _mutedColor,
         fontSize: 13,
+        fontWeight: FontWeight.w600,
       ),
       filled: true,
-      fillColor: const Color(0xFFF5F7FA),
+      fillColor: _inputFillColor,
+      suffixIconColor: _mutedColor,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
-        borderSide: BorderSide.none,
+        borderSide: BorderSide(color: _borderColor),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: _borderColor),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: Color(0xFF0D4DB3), width: 1.4),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: Color(0xFFC62828), width: 1.2),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: Color(0xFFC62828), width: 1.4),
       ),
       errorStyle: GoogleFonts.plusJakartaSans(fontSize: 11),
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
@@ -271,15 +319,15 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
   @override
   Widget build(BuildContext context) {
     if (_isLoadingUser) {
-      return const Scaffold(
-        backgroundColor: Color(0xFFF5F7FA),
+      return Scaffold(
+        backgroundColor: _pageBackground,
         body: Center(child: CircularProgressIndicator()),
       );
     }
 
     if (_loadedUser == null) {
       return Scaffold(
-        backgroundColor: const Color(0xFFF5F7FA),
+        backgroundColor: _pageBackground,
         body: Center(
           child: Text(
             _errorMessage ?? 'User not found.',
@@ -290,7 +338,7 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
+      backgroundColor: _pageBackground,
       body: Padding(
         padding: const EdgeInsets.all(32),
         child: SingleChildScrollView(
@@ -298,10 +346,11 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
             width: double.infinity,
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: _cardColor,
               borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: const Color(0xFFE7ECF3)),
+              border: Border.all(color: _borderColor),
               boxShadow: [
+                if (!_isDarkMode)
                 BoxShadow(
                   color: Colors.black.withOpacity(0.03),
                   blurRadius: 12,
@@ -318,6 +367,11 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
                     onPressed: () => Navigator.pop(context),
                     icon: const Icon(Icons.arrow_back),
                     label: const Text('Back'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: _isDarkMode
+                          ? const Color(0xFF93C5FD)
+                          : const Color(0xFF0D4DB3),
+                    ),
                   ),
                   const SizedBox(height: 8),
                   Text(
@@ -325,7 +379,7 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
                     style: GoogleFonts.plusJakartaSans(
                       fontSize: 30,
                       fontWeight: FontWeight.w900,
-                      color: const Color(0xFF0A2351),
+                      color: _titleColor,
                     ),
                   ),
                   const SizedBox(height: 6),
@@ -333,7 +387,7 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
                     'Assign this intern to a registered partner company. The company geofence will be applied automatically.',
                     style: GoogleFonts.plusJakartaSans(
                       fontSize: 13,
-                      color: Colors.grey[600],
+                      color: _mutedColor,
                       height: 1.4,
                     ),
                   ),
@@ -377,7 +431,7 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF0D4DB3),
                           foregroundColor: Colors.white,
-                          disabledBackgroundColor: Colors.grey[300],
+                          disabledBackgroundColor: _isDarkMode ? const Color(0xFF374151) : Colors.grey[300],
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(10),
                           ),
@@ -400,9 +454,9 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFD),
+        color: _softCardColor,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE7ECF3)),
+        border: Border.all(color: _borderColor),
       ),
       child: Row(
         children: [
@@ -427,7 +481,7 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 15,
                     fontWeight: FontWeight.w900,
-                    color: const Color(0xFF1C2434),
+                    color: _bodyColor,
                   ),
                 ),
                 const SizedBox(height: 3),
@@ -435,7 +489,7 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
                   _loadedUser!.email,
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 12,
-                    color: Colors.grey[600],
+                    color: _mutedColor,
                   ),
                 ),
               ],
@@ -454,6 +508,7 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
         const SizedBox(height: 10),
         TextFormField(
           controller: _requiredHoursController,
+          style: _fieldTextStyle,
           keyboardType: TextInputType.number,
           decoration: _fieldDecoration('480'),
           validator: (value) {
@@ -519,6 +574,11 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
                 DropdownButtonFormField<CompanyModel>(
                   value: selectedCompany,
                   isExpanded: true,
+                  dropdownColor: _cardColor,
+                  iconEnabledColor: _isDarkMode
+                      ? const Color(0xFF93C5FD)
+                      : const Color(0xFF0D4DB3),
+                  style: _fieldTextStyle,
                   decoration: _fieldDecoration('Select registered company'),
                   items: companies.map((company) {
                     return DropdownMenuItem<CompanyModel>(
@@ -526,10 +586,7 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
                       child: Text(
                         company.companyName,
                         overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                        ),
+                        style: _fieldTextStyle,
                       ),
                     );
                   }).toList(),
@@ -570,21 +627,23 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFD),
+        color: _softCardColor,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE7ECF3)),
+        border: Border.all(color: _borderColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           TextFormField(
             controller: _companyNameController,
+            style: _fieldTextStyle,
             readOnly: true,
             decoration: _fieldDecoration('Company Name'),
           ),
           const SizedBox(height: 12),
           TextFormField(
             controller: _companyAddressController,
+            style: _fieldTextStyle,
             readOnly: true,
             decoration: _fieldDecoration('Company Address'),
           ),
@@ -594,6 +653,7 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
               Expanded(
                 child: TextFormField(
                   controller: _latitudeController,
+                  style: _fieldTextStyle,
                   readOnly: true,
                   decoration: _fieldDecoration('Latitude'),
                   validator: _validateLatitude,
@@ -603,6 +663,7 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
               Expanded(
                 child: TextFormField(
                   controller: _longitudeController,
+                  style: _fieldTextStyle,
                   readOnly: true,
                   decoration: _fieldDecoration('Longitude'),
                   validator: _validateLongitude,
@@ -612,6 +673,7 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
               Expanded(
                 child: TextFormField(
                   controller: _radiusController,
+                  style: _fieldTextStyle,
                   readOnly: true,
                   decoration: _fieldDecoration('Radius'),
                   validator: _validateRadius,
@@ -634,15 +696,16 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
           width: double.infinity,
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: const Color(0xFFF8FAFD),
+            color: _softCardColor,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: const Color(0xFFE7ECF3)),
+            border: Border.all(color: _borderColor),
           ),
           child: Row(
             children: [
               Expanded(
                 child: TextFormField(
                   controller: _internshipStartDateController,
+                  style: _fieldTextStyle,
                   readOnly: true,
                   onTap: () => _pickDate(
                     context,
@@ -662,6 +725,7 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
               Expanded(
                 child: TextFormField(
                   controller: _internshipEndDateController,
+                  style: _fieldTextStyle,
                   readOnly: true,
                   onTap: () => _pickDate(
                     context,
@@ -695,7 +759,7 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
       style: GoogleFonts.plusJakartaSans(
         fontSize: 16,
         fontWeight: FontWeight.w900,
-        color: const Color(0xFF1C2434),
+        color: _bodyColor,
       ),
     );
   }
@@ -735,7 +799,7 @@ class _EditGeofenceScreenState extends State<EditGeofenceScreen> {
                   message,
                   style: GoogleFonts.plusJakartaSans(
                     fontSize: 11,
-                    color: const Color(0xFF1C2434),
+                    color: _bodyColor,
                     height: 1.35,
                   ),
                 ),

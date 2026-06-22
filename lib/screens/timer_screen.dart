@@ -11,7 +11,6 @@ import '../models/attendance_model.dart';
 import '../repositories/attendance_repository.dart';
 import '../services/location_service.dart' as app_location;
 
-import 'intern_home_screen.dart';
 import 'profile_screen.dart';
 import 'timesheet_screen.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -65,6 +64,12 @@ class _TimerScreenState extends State<TimerScreen>
   double _completedOjtHours = 0;
 
   final int _selectedNavIndex = 1;
+
+  bool get _hasReachedRequiredHours {
+    final required = _requiredOjtHours ?? 0;
+    return required > 0 && _completedOjtHours >= required;
+  }
+
 
   bool get _isDarkMode => AppServices.of(context).themeController.isDarkMode;
 
@@ -224,59 +229,7 @@ class _TimerScreenState extends State<TimerScreen>
       return 'Your required OJT hours are not set yet. Please contact your supervisor before clocking in.';
     }
 
-    final durationError = _validateInternshipDuration(
-      startDate: user.internshipStartDate,
-      endDate: user.internshipEndDate,
-    );
-
-    if (durationError != null) {
-      return durationError;
-    }
-
     return null;
-  }
-
-  String? _validateInternshipDuration({
-    required DateTime? startDate,
-    required DateTime? endDate,
-  }) {
-    if (startDate == null || endDate == null) {
-      return 'Your internship duration is not set yet. Please contact your supervisor before clocking in.';
-    }
-
-    final today = DateTime.now();
-    final todayDate = DateTime(today.year, today.month, today.day);
-    final start = DateTime(startDate.year, startDate.month, startDate.day);
-    final end = DateTime(endDate.year, endDate.month, endDate.day, 23, 59, 59);
-
-    if (todayDate.isBefore(start)) {
-      return 'Your internship has not started yet. You can clock in starting ${_formatDate(startDate)}.';
-    }
-
-    if (DateTime.now().isAfter(end)) {
-      return 'Your internship period has ended. You can no longer start a new OJT session.';
-    }
-
-    return null;
-  }
-
-  String _formatDate(DateTime date) {
-    const months = [
-      'January',
-      'February',
-      'March',
-      'April',
-      'May',
-      'June',
-      'July',
-      'August',
-      'September',
-      'October',
-      'November',
-      'December',
-    ];
-
-    return '${months[date.month - 1]} ${date.day}, ${date.year}';
   }
 
   double _calculateCompletedHours(List<AttendanceModel> logs) {
@@ -632,6 +585,41 @@ class _TimerScreenState extends State<TimerScreen>
     return '${pad(duration.inHours)}:${pad(duration.inMinutes.remainder(60))}:${pad(duration.inSeconds.remainder(60))}';
   }
 
+  Future<bool> _ensureRequiredHoursNotCompleted() async {
+    final services = AppServices.of(context);
+    final uid = services.authService.currentUser?.uid;
+
+    if (uid == null || uid.trim().isEmpty) {
+      _showError('User not authenticated.');
+      return false;
+    }
+
+    final user = await services.userRepository.getUserByUid(uid);
+    final requiredHours = user?.requiredOjtHours ?? _requiredOjtHours ?? 0;
+
+    final allLogs = await services.attendanceRepository.getAttendanceByStudent(
+      uid,
+    );
+
+    final completedHours = _calculateCompletedHours(allLogs);
+
+    if (!mounted) return false;
+
+    setState(() {
+      _requiredOjtHours = requiredHours;
+      _completedOjtHours = completedHours;
+    });
+
+    if (requiredHours > 0 && completedHours >= requiredHours) {
+      _showError(
+        'You have already completed your required OJT hours. You can no longer start a new timer session.',
+      );
+      return false;
+    }
+
+    return true;
+  }
+
   Future<void> _handleStart() async {
     if (_isClockedIn) return;
 
@@ -641,6 +629,9 @@ class _TimerScreenState extends State<TimerScreen>
       );
       return;
     }
+
+    final canStillClockIn = await _ensureRequiredHoursNotCompleted();
+    if (!canStillClockIn) return;
 
     final hasNetwork = await _hasNetworkConnection();
     if (!hasNetwork) {
@@ -898,6 +889,11 @@ class _TimerScreenState extends State<TimerScreen>
   }
 
   Future<void> _handleClockInOut(AttendanceStatus status) async {
+    if (status == AttendanceStatus.clockIn) {
+      final canStillClockIn = await _ensureRequiredHoursNotCompleted();
+      if (!canStillClockIn) return;
+    }
+
     if (_targetLat == null || _targetLng == null || _allowedRadius == null) {
       _showError(
         'Your OJT company assignment is incomplete. Please contact your supervisor before clocking in.',
@@ -978,29 +974,20 @@ class _TimerScreenState extends State<TimerScreen>
     });
   }
 
-
-  Route<T> _noTransitionRoute<T>(Widget page) {
-    return PageRouteBuilder<T>(
-      pageBuilder: (context, animation, secondaryAnimation) => page,
-      transitionDuration: Duration.zero,
-      reverseTransitionDuration: Duration.zero,
-    );
-  }
-
   void _handleBottomNavTap(int index) {
     if (index == 1) return;
 
     switch (index) {
       case 0:
         Navigator.of(context).pushAndRemoveUntil(
-          _noTransitionRoute(const InternHomeScreen()),
+          MaterialPageRoute(builder: (_) => const AuthGate()),
           (route) => false,
         );
         break;
 
       case 2:
         Navigator.of(context).pushAndRemoveUntil(
-          _noTransitionRoute(const TimesheetScreen()),
+          MaterialPageRoute(builder: (_) => const TimesheetScreen()),
           (route) => route.isFirst,
         );
         break;
@@ -1008,7 +995,7 @@ class _TimerScreenState extends State<TimerScreen>
       case 3:
         Navigator.of(
           context,
-        ).push(_noTransitionRoute(const ProfileScreen()));
+        ).push(MaterialPageRoute(builder: (_) => const ProfileScreen()));
         break;
     }
   }
@@ -1074,11 +1061,36 @@ class _TimerScreenState extends State<TimerScreen>
   }
 
   Widget _buildTopBar() {
+    final services = AppServices.of(context);
+    final displayName = services.authService.currentUser?.displayName;
+    final initial = displayName != null && displayName.trim().isNotEmpty
+        ? displayName[0]
+        : 'I';
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       color: _background,
       child: Row(
         children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: const BoxDecoration(
+              color: Color(0xFF1A3A6B),
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: Text(
+                initial.toUpperCase(),
+                style: GoogleFonts.dmSans(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
           Text(
             'Internship Monitor',
             style: GoogleFonts.dmSans(
@@ -1321,6 +1333,17 @@ class _TimerScreenState extends State<TimerScreen>
             '${(progress * 100).toStringAsFixed(1)}% completed',
             style: GoogleFonts.dmSans(fontSize: 12, color: _mutedColor),
           ),
+          if (required > 0 && completed >= required) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Required hours completed. New timer sessions are disabled.',
+              style: GoogleFonts.dmSans(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: const Color(0xFF14A44D),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -1415,7 +1438,11 @@ class _TimerScreenState extends State<TimerScreen>
           child: SizedBox(
             height: 52,
             child: ElevatedButton(
-              onPressed: (_isLoading || !geofenceReady || _isClockedIn)
+              onPressed:
+                  (_isLoading ||
+                      !geofenceReady ||
+                      _isClockedIn ||
+                      _hasReachedRequiredHours)
                   ? null
                   : _handleStart,
               style: ElevatedButton.styleFrom(
@@ -1438,7 +1465,7 @@ class _TimerScreenState extends State<TimerScreen>
                       ),
                     )
                   : Text(
-                      'Start',
+                      _hasReachedRequiredHours ? 'Completed' : 'Start',
                       style: GoogleFonts.dmSans(
                         fontSize: 15,
                         fontWeight: FontWeight.w700,

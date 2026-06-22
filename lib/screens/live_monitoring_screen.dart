@@ -168,13 +168,11 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                             }
 
                             final allLocations = locationSnapshot.data ?? [];
-                            final assignedUidSet = visibleUsers
-                                .map((user) => user.uid)
-                                .toSet();
+                            final assignedUidSet =
+                                visibleUsers.map((user) => user.uid).toSet();
 
-                            final filteredLocations = allLocations.where((
-                              location,
-                            ) {
+                            final filteredLocations =
+                                allLocations.where((location) {
                               if (!assignedUidSet.contains(location.uid)) {
                                 return false;
                               }
@@ -523,8 +521,8 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
     final markers = filteredLocations.map((item) {
       return Marker(
         point: LatLng(item.latitude, item.longitude),
-        width: 130,
-        height: 78,
+        width: 150,
+        height: 82,
         child: _buildMapMarker(item),
       );
     }).toList();
@@ -554,34 +552,37 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
       child: Stack(
         children: [
           Positioned.fill(
-            child: FlutterMap(
-              mapController: _mapController,
-              options: MapOptions(
-                initialCenter: center,
-                initialZoom: filteredLocations.isNotEmpty ? 16 : 6,
-              ),
-              children: [
-                TileLayer(
-                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  userAgentPackageName: 'com.example.ojt_monitoring_app',
+            child: Theme(
+              data: ThemeData.light(),
+              child: FlutterMap(
+                mapController: _mapController,
+                options: MapOptions(
+                  initialCenter: center,
+                  initialZoom: filteredLocations.isNotEmpty ? 16 : 6,
                 ),
-                CircleLayer(circles: geofenceCircles),
-                MarkerLayer(markers: markers),
-              ],
+                children: [
+                  TileLayer(
+                    urlTemplate:
+                        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    userAgentPackageName: 'com.example.ojt_monitoring_app',
+                  ),
+                  CircleLayer(circles: geofenceCircles),
+                  MarkerLayer(markers: markers),
+                ],
+              ),
             ),
           ),
           if (filteredLocations.isEmpty)
             Positioned.fill(
               child: Container(
-                color: _isDarkMode
-                    ? Colors.black.withValues(alpha: 0.46)
-                    : Colors.white.withValues(alpha: 0.55),
+                color: Colors.white.withValues(alpha: 0.72),
                 child: Center(
                   child: Text(
                     'No fresh live location updates. Stale updates older than 5 minutes are hidden.',
+                    textAlign: TextAlign.center,
                     style: GoogleFonts.plusJakartaSans(
                       fontSize: 13,
-                      color: _mutedText,
+                      color: const Color(0xFF4B5563),
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -641,22 +642,25 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
   }
 
   Widget _buildMapMarker(LiveLocationModel item) {
-    final displayName = item.fullName.trim().isEmpty
-        ? 'Intern'
-        : item.fullName.trim();
+    final displayName =
+        item.fullName.trim().isEmpty ? 'Intern' : item.fullName.trim();
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(
-          constraints: const BoxConstraints(maxWidth: 110),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          constraints: const BoxConstraints(maxWidth: 130),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: const Color(0xFFE5E7EB),
+              width: 1,
+            ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.08),
+                color: Colors.black.withValues(alpha: 0.18),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),
@@ -668,8 +672,8 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
             textAlign: TextAlign.center,
             style: GoogleFonts.plusJakartaSans(
               fontSize: 10,
-              fontWeight: FontWeight.w700,
-              color: _primaryText,
+              fontWeight: FontWeight.w800,
+              color: const Color(0xFF111827),
             ),
           ),
         ),
@@ -680,7 +684,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
           decoration: BoxDecoration(
             color: const Color(0xFF0D4DB3),
             shape: BoxShape.circle,
-            border: Border.all(color: _cardColor, width: 3),
+            border: Border.all(color: Colors.white, width: 3),
             boxShadow: [
               BoxShadow(
                 color: const Color(0xFF0D4DB3).withValues(alpha: 0.25),
@@ -706,16 +710,14 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
         width: 46,
         height: 46,
         decoration: BoxDecoration(
-          color: filled ? const Color(0xFF0D4DB3) : _cardColor,
+          color: filled ? const Color(0xFF0D4DB3) : Colors.white,
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: filled ? const Color(0xFF0D4DB3) : _borderColor,
+            color: filled ? const Color(0xFF0D4DB3) : const Color(0xFFE5E7EB),
           ),
           boxShadow: [
             BoxShadow(
-              color: _isDarkMode
-                  ? Colors.black.withValues(alpha: 0.20)
-                  : Colors.black.withValues(alpha: 0.04),
+              color: Colors.black.withValues(alpha: 0.12),
               blurRadius: 10,
               offset: const Offset(0, 4),
             ),
@@ -724,7 +726,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
         child: Icon(
           icon,
           size: 22,
-          color: filled ? Colors.white : _primaryText,
+          color: filled ? Colors.white : const Color(0xFF111827),
         ),
       ),
     );
@@ -748,7 +750,8 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
-            color: _isDarkMode ? const Color(0xFF0F2A5A) : const Color(0xFFEAF2FF),
+            color:
+                _isDarkMode ? const Color(0xFF0F2A5A) : const Color(0xFFEAF2FF),
             borderRadius: BorderRadius.circular(999),
           ),
           child: Text(
@@ -797,8 +800,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
           }
         }
 
-        final hasGeofence =
-            user.assignedLatitude != null &&
+        final hasGeofence = user.assignedLatitude != null &&
             user.assignedLongitude != null &&
             user.allowedRadius != null &&
             user.allowedRadius! > 0;
@@ -846,7 +848,8 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
             children: [
               CircleAvatar(
                 radius: 20,
-                backgroundColor: _isDarkMode ? const Color(0xFF1E3A5F) : const Color(0xFFE8F0FF),
+                backgroundColor:
+                    _isDarkMode ? const Color(0xFF1E3A5F) : const Color(0xFFE8F0FF),
                 child: Text(
                   initials,
                   style: GoogleFonts.plusJakartaSans(

@@ -22,7 +22,8 @@ class EvaluateScreen extends StatefulWidget {
 }
 
 class _EvaluateScreenState extends State<EvaluateScreen> {
-  final TextEditingController _observationsController = TextEditingController();
+  final TextEditingController _observationsController =
+      TextEditingController();
 
   bool _isSaving = false;
 
@@ -107,8 +108,8 @@ class _EvaluateScreenState extends State<EvaluateScreen> {
     return (widget.completedHours / widget.requiredHours).clamp(0.0, 1.0);
   }
 
-  Future<void> _saveEvaluation({required bool submit}) async {
-    if (submit && !_canSubmit) {
+  Future<void> _submitEvaluation() async {
+    if (!_canSubmit) {
       _showSnackBar(
         'Please rate all evaluation criteria before submitting.',
         isError: true,
@@ -131,21 +132,9 @@ class _EvaluateScreenState extends State<EvaluateScreen> {
       );
 
       final docId = '${widget.intern.uid}_${currentUser.uid}';
-      final docRef = FirebaseFirestore.instance
-          .collection('evaluations')
-          .doc(docId);
 
-      await FirebaseFirestore.instance.runTransaction((transaction) async {
-        final existingSnapshot = await transaction.get(docRef);
-        final existingData = existingSnapshot.data();
-
-        if (existingData?['status'] == 'submitted') {
-          throw Exception(
-            'This intern already has a submitted final evaluation.',
-          );
-        }
-
-        final evaluationData = <String, dynamic>{
+      await FirebaseFirestore.instance.collection('evaluations').doc(docId).set(
+        {
           'internUid': widget.intern.uid,
           'internName': widget.intern.fullName,
           'internEmail': widget.intern.email,
@@ -161,29 +150,21 @@ class _EvaluateScreenState extends State<EvaluateScreen> {
           'totalScore': _totalScore,
           'averageRating': _averageRating,
           'finalObservations': _observationsController.text.trim(),
-          'status': submit ? 'submitted' : 'draft',
+          'status': 'submitted',
           'updatedAt': FieldValue.serverTimestamp(),
-          if (!existingSnapshot.exists)
-            'createdAt': FieldValue.serverTimestamp(),
-          if (submit) 'submittedAt': FieldValue.serverTimestamp(),
-        };
-
-        transaction.set(docRef, evaluationData, SetOptions(merge: true));
-      });
+          'submittedAt': FieldValue.serverTimestamp(),
+          'createdAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
 
       if (!mounted) return;
 
       setState(() => _isSaving = false);
 
-      _showSnackBar(
-        submit
-            ? 'Evaluation submitted successfully.'
-            : 'Evaluation draft saved.',
-      );
+      _showSnackBar('Evaluation submitted successfully.');
 
-      if (submit && mounted) {
-        Navigator.of(context).pop();
-      }
+      Navigator.of(context).pop();
     } catch (e) {
       if (!mounted) return;
 
@@ -258,7 +239,9 @@ class _EvaluateScreenState extends State<EvaluateScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 22),
       decoration: const BoxDecoration(
         color: _bg,
-        border: Border(bottom: BorderSide(color: Color(0xFFE9EEF5))),
+        border: Border(
+          bottom: BorderSide(color: Color(0xFFE9EEF5)),
+        ),
       ),
       child: Row(
         children: [
@@ -287,24 +270,6 @@ class _EvaluateScreenState extends State<EvaluateScreen> {
             ),
           ),
           const Spacer(),
-          IconButton(
-            tooltip: 'Notifications',
-            onPressed: () {},
-            icon: const Icon(
-              Icons.notifications_none_rounded,
-              color: Color(0xFF1C2434),
-              size: 20,
-            ),
-          ),
-          IconButton(
-            tooltip: 'Settings',
-            onPressed: () {},
-            icon: const Icon(
-              Icons.settings_outlined,
-              color: Color(0xFF1C2434),
-              size: 20,
-            ),
-          ),
         ],
       ),
     );
@@ -521,7 +486,10 @@ class _EvaluateScreenState extends State<EvaluateScreen> {
     );
   }
 
-  Widget _buildInfoPill({required String label, required String value}) {
+  Widget _buildInfoPill({
+    required String label,
+    required String value,
+  }) {
     return Container(
       constraints: const BoxConstraints(minWidth: 140),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -661,7 +629,11 @@ class _EvaluateScreenState extends State<EvaluateScreen> {
                   ),
                 ),
               ),
-              Icon(criterion.icon, size: 18, color: _primary.withOpacity(0.55)),
+              Icon(
+                criterion.icon,
+                size: 18,
+                color: _primary.withOpacity(0.55),
+              ),
             ],
           ),
           const SizedBox(height: 4),
@@ -768,72 +740,53 @@ class _EvaluateScreenState extends State<EvaluateScreen> {
   }
 
   Widget _buildActionButtons({required bool isCompact}) {
-    final buttons = [
-      SizedBox(
-        height: 48,
-        child: ElevatedButton(
-          onPressed: _isSaving ? null : () => _saveEvaluation(submit: false),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFFBBD7FF),
-            foregroundColor: _primary,
-            disabledBackgroundColor: Colors.grey[300],
-            elevation: 0,
-            padding: const EdgeInsets.symmetric(horizontal: 30),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-          child: _isSaving
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : Text(
-                  'Save Draft',
-                  style: GoogleFonts.plusJakartaSans(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
-                  ),
+    final submitButton = SizedBox(
+      height: 48,
+      child: ElevatedButton.icon(
+        onPressed: _isSaving ? null : _submitEvaluation,
+        icon: _isSaving
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
                 ),
-        ),
-      ),
-      const SizedBox(width: 14, height: 14),
-      SizedBox(
-        height: 48,
-        child: ElevatedButton.icon(
-          onPressed: _isSaving ? null : () => _saveEvaluation(submit: true),
-          icon: const Icon(Icons.arrow_forward_rounded, size: 16),
-          label: Text(
-            'Submit Evaluation',
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: 12,
-              fontWeight: FontWeight.w900,
-            ),
+              )
+            : const Icon(Icons.arrow_forward_rounded, size: 16),
+        label: Text(
+          _isSaving ? 'Submitting...' : 'Submit Evaluation',
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 12,
+            fontWeight: FontWeight.w900,
           ),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: _primary,
-            foregroundColor: Colors.white,
-            disabledBackgroundColor: Colors.grey[300],
-            elevation: 0,
-            padding: const EdgeInsets.symmetric(horizontal: 30),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: _primary,
+          foregroundColor: Colors.white,
+          disabledBackgroundColor: Colors.grey[300],
+          elevation: 0,
+          padding: const EdgeInsets.symmetric(horizontal: 30),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
           ),
         ),
       ),
-    ];
+    );
 
     if (isCompact) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: buttons,
+        children: [submitButton],
       );
     }
 
-    return Row(mainAxisAlignment: MainAxisAlignment.end, children: buttons);
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [submitButton],
+    );
   }
+
 
   String _cleanText(String? value, {required String fallback}) {
     if (value == null || value.trim().isEmpty) return fallback;

@@ -8,6 +8,7 @@ import '../models/attendance_model.dart';
 import '../models/user_model.dart';
 import 'edit_geofence_screen.dart';
 import 'evaluate_screen.dart';
+import 'evaluation_detail_screen.dart';
 
 class UserManagementScreen extends StatefulWidget {
   const UserManagementScreen({super.key});
@@ -843,7 +844,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
             final label = isLoading || isCheckingEvaluation
                 ? 'Checking'
                 : isSubmitted
-                ? 'Evaluated'
+                ? 'View Evaluation'
                 : canEvaluate
                 ? 'Evaluate Student'
                 : 'Evaluation Locked';
@@ -851,14 +852,13 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
             final enabled =
                 !isLoading &&
                 !isCheckingEvaluation &&
-                canEvaluate &&
-                !isSubmitted;
+                (isSubmitted || canEvaluate);
 
             return _buildEvaluateButtonState(
               label: label,
               completedText: completedText,
               tooltip: isSubmitted
-                  ? 'This student already has a submitted final evaluation.'
+                  ? 'View the submitted final evaluation.'
                   : canEvaluate
                   ? 'Student has completed the required OJT hours.'
                   : requiredHours <= 0
@@ -869,6 +869,18 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
               isSubmitted: isSubmitted,
               onPressed: enabled
                   ? () {
+                      if (isSubmitted) {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => EvaluationDetailScreen(
+                              evaluationId: evaluationDocId,
+                              title: 'Submitted Evaluation',
+                            ),
+                          ),
+                        );
+                        return;
+                      }
+
                       Navigator.of(context).push(
                         MaterialPageRoute(
                           builder: (_) => EvaluateScreen(
@@ -907,7 +919,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
           onPressed: onPressed,
           icon: Icon(
             isSubmitted
-                ? Icons.verified_rounded
+                ? Icons.visibility_outlined
                 : canEvaluate
                 ? Icons.assignment_outlined
                 : Icons.lock_outline_rounded,

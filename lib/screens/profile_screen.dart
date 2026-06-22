@@ -1,12 +1,13 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../main.dart';
-import 'intern_home_screen.dart';
 import '../models/attendance_model.dart';
 import '../models/user_model.dart';
 import 'timer_screen.dart';
 import 'timesheet_screen.dart';
+import 'evaluation_detail_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -55,36 +56,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
     super.dispose();
   }
 
-
-  Route<T> _noTransitionRoute<T>(Widget page) {
-    return PageRouteBuilder<T>(
-      pageBuilder: (context, animation, secondaryAnimation) => page,
-      transitionDuration: Duration.zero,
-      reverseTransitionDuration: Duration.zero,
-    );
-  }
-
   void _handleBottomNavTap(int index) {
     if (index == _selectedNavIndex) return;
 
     switch (index) {
       case 0:
         Navigator.of(context).pushAndRemoveUntil(
-          _noTransitionRoute(const InternHomeScreen()),
+          MaterialPageRoute(builder: (_) => const AuthGate()),
           (route) => false,
         );
         break;
 
       case 1:
         Navigator.of(context).pushAndRemoveUntil(
-          _noTransitionRoute(const TimerScreen()),
+          MaterialPageRoute(builder: (_) => const TimerScreen()),
           (route) => route.isFirst,
         );
         break;
 
       case 2:
         Navigator.of(context).pushAndRemoveUntil(
-          _noTransitionRoute(const TimesheetScreen()),
+          MaterialPageRoute(builder: (_) => const TimesheetScreen()),
           (route) => route.isFirst,
         );
         break;
@@ -139,6 +131,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     return totalHours;
   }
+
+  String _formatProgressPercent(double progress) {
+    final percent = (progress * 100).clamp(0.0, 100.0);
+
+    if (percent >= 99.95) return '100%';
+    if (percent % 1 == 0) return '${percent.toStringAsFixed(0)}%';
+
+    return '${percent.toStringAsFixed(1)}%';
+  }
+
+  String _formatHourValue(double hours) {
+    if (hours % 1 == 0) return hours.toStringAsFixed(0);
+    return hours.toStringAsFixed(1);
+  }
+
 
   Future<void> _handleJoinSupervisor() async {
     final code = _supervisorCodeController.text.trim();
@@ -256,7 +263,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       if (goToTimer == true && mounted) {
         Navigator.of(context).pushAndRemoveUntil(
-          _noTransitionRoute(const TimerScreen()),
+          MaterialPageRoute(builder: (_) => const TimerScreen()),
           (route) => route.isFirst,
         );
       }
@@ -342,7 +349,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (!mounted) return;
 
       navigator.pushAndRemoveUntil(
-        _noTransitionRoute(const InternHomeScreen()),
+        MaterialPageRoute(builder: (_) => const AuthGate()),
         (route) => false,
       );
     } catch (_) {
@@ -392,10 +399,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 : FutureBuilder<UserModel?>(
                     future: services.userRepository.getUserByUid(uid),
                     builder: (context, snapshot) {
-                      // Do not show a full-screen loading state here.
-                      // Building the profile shell immediately prevents the
-                      // black/white flash when opening Profile from bottom nav.
-                      if (snapshot.hasError && !snapshot.hasData) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(
+                          child: CircularProgressIndicator(color: _blue),
+                        );
+                      }
+
+                      if (snapshot.hasError) {
                         return _buildProblemState();
                       }
 
@@ -435,6 +445,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   _buildInternshipDetails(user),
                                   const SizedBox(height: 18),
                                   _buildProgressCard(user),
+                                  const SizedBox(height: 18),
+                                  _buildFinalEvaluationCard(user),
                                   const SizedBox(height: 18),
                                   _buildAccountCard(user),
                                 ],
@@ -707,7 +719,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ? 0.0
         : (completedHours / requiredHours).clamp(0.0, 1.0);
 
-    final progressPercent = (progress * 100).toStringAsFixed(1);
+    final progressPercent = _formatProgressPercent(progress);
 
     return Container(
       width: double.infinity,
@@ -756,19 +768,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         color: Colors.white,
                       ),
                     )
-                  : Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text(
-                          '$progressPercent%',
-                          textAlign: TextAlign.center,
-                          maxLines: 1,
-                          style: GoogleFonts.dmSans(
-                            fontSize: 24,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                          ),
+                  : FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        progressPercent,
+                        maxLines: 1,
+                        softWrap: false,
+                        style: GoogleFonts.dmSans(
+                          fontSize: 24,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.white,
                         ),
                       ),
                     ),
@@ -778,7 +787,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           Text(
             requiredHours <= 0
                 ? 'Required OJT hours not set.'
-                : '${completedHours.toStringAsFixed(1)} of $requiredHours hours completed',
+                : '${_formatHourValue(completedHours)} of $requiredHours hours completed',
             textAlign: TextAlign.center,
             style: GoogleFonts.dmSans(
               fontSize: 12,
@@ -799,14 +808,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
               Expanded(
                 child: _buildProgressMiniStat(
                   label: 'Completed',
-                  value: '${completedHours.toStringAsFixed(1)} h',
+                  value: '${_formatHourValue(completedHours)} h',
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: _buildProgressMiniStat(
                   label: 'Remaining',
-                  value: '${remainingHours.toStringAsFixed(1)} h',
+                  value: '${_formatHourValue(remainingHours)} h',
                 ),
               ),
             ],
@@ -838,18 +847,235 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
           const SizedBox(height: 4),
-          Text(
-            value,
-            textAlign: TextAlign.center,
-            style: GoogleFonts.dmSans(
-              fontSize: 11,
-              fontWeight: FontWeight.w900,
-              color: Colors.white,
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              value,
+              maxLines: 1,
+              softWrap: false,
+              textAlign: TextAlign.center,
+              style: GoogleFonts.dmSans(
+                fontSize: 11,
+                fontWeight: FontWeight.w900,
+                color: Colors.white,
+              ),
             ),
           ),
         ],
       ),
     );
+  }
+
+  Widget _buildFinalEvaluationCard(UserModel? user) {
+    final uid = user?.uid;
+    final supervisorUid = user?.supervisorUid;
+
+    if (uid == null || uid.trim().isEmpty) {
+      return _buildCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildCardTitle(
+              icon: Icons.assignment_turned_in_outlined,
+              title: 'Final Evaluation',
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Evaluation status is not available because your account profile could not be loaded.',
+              style: GoogleFonts.dmSans(
+                fontSize: 12,
+                color: _mutedColor,
+                height: 1.4,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (supervisorUid == null || supervisorUid.trim().isEmpty) {
+      return _buildEvaluationStatusCard(
+        icon: Icons.hourglass_empty_rounded,
+        title: 'Final Evaluation',
+        status: 'Not available yet',
+        message:
+            'Join a supervisor and complete your OJT requirements before your final evaluation becomes available.',
+        action: null,
+      );
+    }
+
+    final evaluationId = '${uid}_$supervisorUid';
+
+    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      future: FirebaseFirestore.instance
+          .collection('evaluations')
+          .doc(evaluationId)
+          .get(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return _buildEvaluationStatusCard(
+            icon: Icons.assignment_turned_in_outlined,
+            title: 'Final Evaluation',
+            status: 'Checking status...',
+            message: 'Please wait while the system checks your evaluation record.',
+            action: null,
+          );
+        }
+
+        final data = snapshot.data?.data();
+        final isSubmitted =
+            data?['status']?.toString().toLowerCase() == 'submitted';
+
+        if (!isSubmitted) {
+          return _buildEvaluationStatusCard(
+            icon: Icons.assignment_late_outlined,
+            title: 'Final Evaluation',
+            status: 'Not submitted yet',
+            message:
+                'Your supervisor has not submitted your final evaluation yet. It will appear here once submitted.',
+            action: null,
+          );
+        }
+
+        final averageRating = _toDouble(data?['averageRating']);
+        final totalScore = _toInt(data?['totalScore']);
+        final submittedAt = _formatSubmittedAt(data?['submittedAt']);
+
+        return _buildEvaluationStatusCard(
+          icon: Icons.verified_outlined,
+          title: 'Final Evaluation',
+          status: 'Submitted',
+          message:
+              'Average Rating: ${averageRating.toStringAsFixed(1)} / 5 • Total Score: $totalScore • Submitted: $submittedAt',
+          action: SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: ElevatedButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => EvaluationDetailScreen(
+                      evaluationId: evaluationId,
+                      title: 'My Final Evaluation',
+                    ),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.visibility_outlined, size: 18),
+              label: Text(
+                'View Evaluation',
+                style: GoogleFonts.dmSans(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _blue,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildEvaluationStatusCard({
+    required IconData icon,
+    required String title,
+    required String status,
+    required String message,
+    Widget? action,
+  }) {
+    final isSubmitted = status.toLowerCase() == 'submitted';
+
+    return _buildCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildCardTitle(icon: icon, title: title),
+          const SizedBox(height: 14),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: isSubmitted
+                  ? _green.withValues(alpha: _isDarkMode ? 0.18 : 0.10)
+                  : _softCardColor,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: isSubmitted
+                    ? _green.withValues(alpha: _isDarkMode ? 0.35 : 0.18)
+                    : _borderColor,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  status,
+                  style: GoogleFonts.dmSans(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                    color: isSubmitted ? _green : _titleColor,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  message,
+                  style: GoogleFonts.dmSans(
+                    fontSize: 12,
+                    color: _mutedColor,
+                    height: 1.4,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (action != null) ...[
+            const SizedBox(height: 14),
+            action,
+          ],
+        ],
+      ),
+    );
+  }
+
+  int _toInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  double _toDouble(dynamic value) {
+    if (value is double) return value;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  String _formatSubmittedAt(dynamic value) {
+    DateTime? date;
+
+    if (value is Timestamp) {
+      date = value.toDate();
+    } else if (value is DateTime) {
+      date = value;
+    } else if (value != null) {
+      date = DateTime.tryParse(value.toString());
+    }
+
+    if (date == null) return 'Not available';
+
+    final mm = date.month.toString().padLeft(2, '0');
+    final dd = date.day.toString().padLeft(2, '0');
+    final yyyy = date.year.toString();
+    return '$mm/$dd/$yyyy';
   }
 
   Widget _buildAccountCard(UserModel? user) {
