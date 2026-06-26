@@ -1271,23 +1271,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Future<void> _showSettingsSheet() async {
-    final themeController = AppServices.of(context).themeController;
+ Future<void> _showSettingsSheet() async {
+  final themeController = AppServices.of(context).themeController;
 
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: false,
-      backgroundColor: _cardColor,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (sheetContext) {
-        return AnimatedBuilder(
-          animation: themeController,
-          builder: (context, _) {
-            final isDark = themeController.isDarkMode;
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: false,
+    backgroundColor: Colors.transparent,
+    barrierColor: Colors.black.withValues(alpha: 0.45),
+    builder: (sheetContext) {
+      return AnimatedBuilder(
+        animation: themeController,
+        builder: (context, _) {
+          final isDark = themeController.isDarkMode;
 
-            return SafeArea(
+          final sheetColor =
+              isDark ? const Color(0xFF0F172A) : Colors.white;
+
+          final dragHandleColor =
+              isDark ? const Color(0xFF374151) : const Color(0xFFD1D5DB);
+
+          return SafeArea(
+            top: false,
+            child: Container(
+              decoration: BoxDecoration(
+                color: sheetColor,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(24),
+                ),
+              ),
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(18, 14, 18, 22),
                 child: Column(
@@ -1297,9 +1309,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       width: 42,
                       height: 4,
                       decoration: BoxDecoration(
-                        color: isDark
-                            ? const Color(0xFF374151)
-                            : const Color(0xFFD1D5DB),
+                        color: dragHandleColor,
                         borderRadius: BorderRadius.circular(999),
                       ),
                     ),
@@ -1317,7 +1327,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         const Spacer(),
                         IconButton(
                           onPressed: () => Navigator.of(sheetContext).pop(),
-                          icon: Icon(Icons.close_rounded, color: _mutedColor),
+                          icon: Icon(
+                            Icons.close_rounded,
+                            color: _mutedColor,
+                          ),
                         ),
                       ],
                     ),
@@ -1337,12 +1350,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ],
                 ),
               ),
-            );
-          },
-        );
-      },
-    );
-  }
+            ),
+          );
+        },
+      );
+    },
+  );
+}
 
   Widget _buildDarkModeTile(AppThemeController themeController) {
     final isDark = themeController.isDarkMode;

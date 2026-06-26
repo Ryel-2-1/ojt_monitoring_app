@@ -227,6 +227,7 @@ class _TimesheetScreenState extends State<TimesheetScreen> {
 
   Widget _buildBody() {
     if (_isLoading) {
+      
       return ListView(
         padding: const EdgeInsets.all(24),
         children: const [
@@ -249,7 +250,7 @@ class _TimesheetScreenState extends State<TimesheetScreen> {
         ],
       );
     }
-
+final bool canGenerateTimesheet = _sessions.isNotEmpty;
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       children: [
@@ -259,36 +260,43 @@ class _TimesheetScreenState extends State<TimesheetScreen> {
         const SizedBox(height: 16),
         _buildRecentSessionsCard(),
         const SizedBox(height: 22),
-        Align(
-          alignment: Alignment.centerRight,
-          child: SizedBox(
-            width: 150,
-            height: 44,
-            child: ElevatedButton.icon(
-              onPressed: _sessions.isEmpty ? null : _openGenerateTimesheet,
-              icon: const Icon(Icons.description_outlined, size: 16),
-              label: Text(
-                'Generate\nTimesheet',
-                textAlign: TextAlign.center,
-                style: GoogleFonts.dmSans(
-                  fontSize: 10,
-                  height: 1.05,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF0D4DB3),
-                foregroundColor: Colors.white,
-                disabledBackgroundColor: Colors.grey[300],
-                elevation: 0,
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ),
+       Align(
+  alignment: Alignment.centerRight,
+  child: SizedBox(
+    width: 150,
+    height: 44,
+    child: ElevatedButton.icon(
+      onPressed: canGenerateTimesheet ? _openGenerateTimesheet : null,
+      icon: Icon(
+        Icons.description_outlined,
+        size: 16,
+        color: canGenerateTimesheet ? Colors.white : _mutedColor,
+      ),
+      label: Text(
+        'Generate\nTimesheet',
+        textAlign: TextAlign.center,
+        style: GoogleFonts.dmSans(
+          fontSize: 10,
+          height: 1.05,
+          fontWeight: FontWeight.w700,
+          color: canGenerateTimesheet ? Colors.white : _mutedColor,
         ),
+      ),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFF0D4DB3),
+        foregroundColor: Colors.white,
+        disabledBackgroundColor:
+            _isDarkMode ? const Color(0xFF374151) : const Color(0xFFE5E7EB),
+        disabledForegroundColor: _mutedColor,
+        elevation: 0,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+    ),
+  ),
+),
       ],
     );
   }
@@ -1407,130 +1415,139 @@ class _GenerateTimesheetScreenState extends State<GenerateTimesheetScreen> {
   }
 
   Widget _buildPreviewCard() {
-    if (_filteredSessions.isEmpty) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: _cardColor,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: _borderColor),
-        ),
-        child: Text(
-          'No completed attendance sessions found for the selected date range.',
-          textAlign: TextAlign.center,
-          style: GoogleFonts.dmSans(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: _mutedColor,
-          ),
-        ),
-      );
-    }
-
+  if (_filteredSessions.isEmpty) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _cardColor,
         borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _borderColor),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Timesheet Preview',
-            style: GoogleFonts.dmSans(
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-              color: _titleColor,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '${_filteredSessions.length} completed session(s) • ${_filteredHours.toStringAsFixed(1)} total hour(s)',
-            style: GoogleFonts.dmSans(
-              fontSize: 12,
-              color: const Color(0xFF0D4DB3),
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 16),
-          ..._filteredSessions.map((session) {
-            return Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: _softCardColor,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: _borderColor),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      _formatDate(session.clockIn.timestamp),
-                      style: GoogleFonts.dmSans(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                        color: _titleColor,
-                      ),
-                    ),
-                  ),
-                  Text(
-                    '${_formatTime(session.clockIn.timestamp)} - ${_formatTime(session.clockOut.timestamp)}',
-                    style: GoogleFonts.dmSans(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: _mutedColor,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Text(
-                    '${(session.duration.inMinutes / 60).toStringAsFixed(1)}h',
-                    style: GoogleFonts.dmSans(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
-                      color: const Color(0xFF2E7D32),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }),
-          const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            height: 48,
-            child: OutlinedButton.icon(
-              onPressed: () async {
-                await _handleExport();
-              },
-              icon: Icon(
-                _selectedFormat == 'PDF'
-                    ? Icons.picture_as_pdf_outlined
-                    : Icons.table_chart_outlined,
-              ),
-              label: Text(
-                'EXPORT AS $_selectedFormat',
-                style: GoogleFonts.dmSans(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: const Color(0xFF0D4DB3),
-                side: const BorderSide(color: Color(0xFF0D4DB3)),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-            ),
-          ),
-        ],
+      child: Text(
+        'No completed attendance sessions found for the selected date range.',
+        textAlign: TextAlign.center,
+        style: GoogleFonts.dmSans(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          color: _mutedColor,
+        ),
       ),
     );
   }
+
+  return Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(18),
+    decoration: BoxDecoration(
+      color: _cardColor,
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(color: _borderColor),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Timesheet Preview',
+          style: GoogleFonts.dmSans(
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+            color: _titleColor,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          '${_filteredSessions.length} completed session(s) • ${_filteredHours.toStringAsFixed(1)} total hour(s)',
+          style: GoogleFonts.dmSans(
+            fontSize: 12,
+            color: _isDarkMode
+                ? const Color(0xFF93C5FD)
+                : const Color(0xFF0D4DB3),
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 16),
+        ..._filteredSessions.map((session) {
+          return Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: _softCardColor,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: _borderColor),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _formatDate(session.clockIn.timestamp),
+                    style: GoogleFonts.dmSans(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: _titleColor,
+                    ),
+                  ),
+                ),
+                Text(
+                  '${_formatTime(session.clockIn.timestamp)} - ${_formatTime(session.clockOut.timestamp)}',
+                  style: GoogleFonts.dmSans(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: _mutedColor,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  '${(session.duration.inMinutes / 60).toStringAsFixed(1)}h',
+                  style: GoogleFonts.dmSans(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF2E7D32),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          height: 48,
+          child: OutlinedButton.icon(
+            onPressed: () async {
+              await _handleExport();
+            },
+            icon: Icon(
+              _selectedFormat == 'PDF'
+                  ? Icons.picture_as_pdf_outlined
+                  : Icons.table_chart_outlined,
+            ),
+            label: Text(
+              'EXPORT AS $_selectedFormat',
+              style: GoogleFonts.dmSans(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: _isDarkMode
+                  ? const Color(0xFF93C5FD)
+                  : const Color(0xFF0D4DB3),
+              side: BorderSide(
+                color: _isDarkMode
+                    ? const Color(0xFF93C5FD)
+                    : const Color(0xFF0D4DB3),
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
 
   String _cleanText(String? value, {required String fallback}) {
     if (value == null || value.trim().isEmpty) return fallback;
