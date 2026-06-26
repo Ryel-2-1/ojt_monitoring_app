@@ -123,6 +123,167 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+
+Future<void> _showResetPasswordDialog() async {
+  final resetEmailController = TextEditingController(
+    text: _emailController.text.trim(),
+  );
+
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) {
+      bool isSending = false;
+      String? dialogError;
+
+      return StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: Text(
+              'Reset Password',
+              style: GoogleFonts.plusJakartaSans(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Enter your intern email address. A password reset link will be sent to your email.',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 13,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: resetEmailController,
+                  keyboardType: TextInputType.emailAddress,
+                  textInputAction: TextInputAction.done,
+                  enabled: !isSending,
+                  style: GoogleFonts.plusJakartaSans(fontSize: 14),
+                  decoration: InputDecoration(
+                    labelText: 'Email address',
+                    hintText: 'name@university.edu',
+                    prefixIcon: const Icon(Icons.email_outlined),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+                if (dialogError != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    dialogError!,
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 12,
+                      color: const Color(0xFFC62828),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: isSending
+                    ? null
+                    : () {
+                        Navigator.of(dialogContext).pop();
+                      },
+                child: Text(
+                  'Cancel',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              ElevatedButton(
+                onPressed: isSending
+                    ? null
+                    : () async {
+                        final email = resetEmailController.text.trim();
+
+                        if (email.isEmpty ||
+                            !email.contains('@') ||
+                            !email.contains('.')) {
+                          setDialogState(() {
+                            dialogError = 'Enter a valid email address.';
+                          });
+                          return;
+                        }
+
+                        setDialogState(() {
+                          isSending = true;
+                          dialogError = null;
+                        });
+
+                        try {
+                          final authService =
+                              AppServices.of(context).authService;
+
+                          await authService.sendPasswordResetEmail(
+                            email: email,
+                          );
+
+                          if (!mounted || !dialogContext.mounted) return;
+
+                          Navigator.of(dialogContext).pop();
+
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Password reset link sent. Please check your email.',
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 13,
+                                ),
+                              ),
+                              duration: const Duration(seconds: 3),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                        } on AuthException catch (e) {
+                          if (!dialogContext.mounted) return;
+
+                          setDialogState(() {
+                            dialogError = e.message;
+                            isSending = false;
+                          });
+                        } catch (_) {
+                          if (!dialogContext.mounted) return;
+
+                          setDialogState(() {
+                            dialogError =
+                                'Could not send reset email. Please try again.';
+                            isSending = false;
+                          });
+                        }
+                      },
+                child: isSending
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : Text(
+                        'Send Link',
+                        style: GoogleFonts.plusJakartaSans(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
+
+  resetEmailController.dispose();
+}
   // ── Build ──────────────────────────────────────────────────────────
 
   @override
@@ -339,38 +500,24 @@ class _LoginScreenState extends State<LoginScreen> {
   // Currently shows a SnackBar so the UI is not a dead end.
   // Replace onTap body with Navigator.push to ForgotPasswordScreen when ready.
   Widget _buildForgotPassword() {
-    return Align(
-      alignment: Alignment.centerRight,
-      child: GestureDetector(
-        onTap: () {
-          // TODO Phase 4: Replace with ForgotPasswordScreen navigation
-          // Navigator.push(context, MaterialPageRoute(
-          //   builder: (_) => const ForgotPasswordScreen()));
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Password reset coming soon.',
-                style: GoogleFonts.plusJakartaSans(fontSize: 13),
-              ),
-              duration: const Duration(seconds: 2),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        },
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Text(
-            'Forgot Password?',
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: const Color(0xFF1565C0),
-            ),
+  return Align(
+    alignment: Alignment.centerRight,
+    child: GestureDetector(
+      onTap: _isLoading ? null : _showResetPasswordDialog,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Text(
+          'Forgot Password?',
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: const Color(0xFF1565C0),
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildSignInButton() {
     return SizedBox(
