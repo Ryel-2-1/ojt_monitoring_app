@@ -12,6 +12,7 @@ import '../models/attendance_model.dart';
 import '../repositories/attendance_repository.dart';
 import '../services/location_service.dart' as app_location;
 
+import 'intern_home_screen.dart';
 import 'profile_screen.dart';
 import 'timesheet_screen.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -57,11 +58,11 @@ class _TimerScreenState extends State<TimerScreen>
   Timer? _outsideCountdownTimer;
 
   static const double _maxReliableAccuracyMeters = 50.0;
-static const Duration _outsideGeofenceGracePeriod = Duration(seconds: 45);
-static const double _geofenceReturnBufferMeters = 10.0;
-static const int _autoStopConfirmationSamples = 2;
-static const Duration _autoStopConfirmationGap = Duration(seconds: 2);
-static const Duration _onlineClockOutWriteTimeout = Duration(seconds: 8);
+  static const Duration _outsideGeofenceGracePeriod = Duration(seconds: 45);
+  static const double _geofenceReturnBufferMeters = 10.0;
+  static const int _autoStopConfirmationSamples = 2;
+  static const Duration _autoStopConfirmationGap = Duration(seconds: 2);
+  static const Duration _onlineClockOutWriteTimeout = Duration(seconds: 8);
   static const Duration _liveLocationWriteTimeout = Duration(seconds: 5);
   static const String _activeTimerBoxName = 'active_timer_session';
   static const String _activeTimerClockInKey = 'clockInTime';
@@ -432,7 +433,7 @@ static const Duration _onlineClockOutWriteTimeout = Duration(seconds: 8);
       locationSettings:  AndroidSettings(
         accuracy: LocationAccuracy.high,
         distanceFilter: 0,
-        intervalDuration: Duration(seconds: 5),
+        intervalDuration: const Duration(seconds: 5),
       ),
     ).listen((Position position) async {
       try {
@@ -531,38 +532,65 @@ static const Duration _onlineClockOutWriteTimeout = Duration(seconds: 8);
     }
 
     try {
-      final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
+      Position? confirmedOutsidePosition;
 
-      if (position.accuracy > _maxReliableAccuracyMeters) {
-        debugPrint(
-          'Auto clock-out confirmation ignored due to weak GPS accuracy: ${position.accuracy}m',
+      for (int i = 0; i < _autoStopConfirmationSamples; i++) {
+        if (!_isClockedIn || _isAutoStopping) return;
+
+        final position = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high,
         );
-        return;
-      }
 
-      final distance = _distanceMeters(
-        position.latitude,
-        position.longitude,
-        _targetLat!,
-        _targetLng!,
-      );
+        if (position.accuracy > _maxReliableAccuracyMeters) {
+          debugPrint(
+            'Auto clock-out cancelled due to weak GPS accuracy: ${position.accuracy}m',
+          );
 
-      if (distance <= _allowedRadius!) {
-        _resetOutsideGeofenceWarning();
+          _resetOutsideGeofenceWarning();
 
-        if (mounted) {
-          setState(() {
-            _statusMessage = 'Location verified. You are inside the geofence.';
-          });
+          if (mounted) {
+            setState(() {
+              _statusMessage =
+                  'GPS accuracy is weak. Auto clock-out was cancelled and location will be checked again.';
+            });
+          }
+
+          return;
         }
 
-        return;
+        final distance = _distanceMeters(
+          position.latitude,
+          position.longitude,
+          _targetLat!,
+          _targetLng!,
+        );
+
+        final effectiveRadius = _allowedRadius! + _geofenceReturnBufferMeters;
+        final isStillOutside = distance > effectiveRadius;
+
+        if (!isStillOutside) {
+          _resetOutsideGeofenceWarning();
+
+          if (mounted) {
+            setState(() {
+              _statusMessage = 'Location verified. You are inside the geofence.';
+            });
+          }
+
+          return;
+        }
+
+        confirmedOutsidePosition = position;
+
+        if (i < _autoStopConfirmationSamples - 1) {
+          await Future.delayed(_autoStopConfirmationGap);
+        }
       }
 
+      if (confirmedOutsidePosition == null) return;
+
       _hasExitedGeofence = true;
-      await _handleAutoStop(position);
+      await _handleAutoStop(confirmedOutsidePosition);
     } catch (e) {
       debugPrint('Auto clock-out confirmation failed: $e');
     }
@@ -1044,30 +1072,51 @@ static const Duration _onlineClockOutWriteTimeout = Duration(seconds: 8);
     });
   }
 
+  Route<T> _noTransitionRoute<T>(Widget page) {
+  return PageRouteBuilder<T>(
+    pageBuilder: (context, animation, secondaryAnimation) => page,
+    transitionDuration: Duration.zero,
+    reverseTransitionDuration: Duration.zero,
+  );
+}
+
   void _handleBottomNavTap(int index) {
-    if (index == 1) return;
+  if (index == 1) return;
 
-    switch (index) {
-      case 0:
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const AuthGate()),
-          (route) => false,
-        );
-        break;
+  switch (index) {
+    case 0:
+      Navigator.of(context).pushAndRemoveUntil(
+        _noTransitionRoute(const InternHomeScreen()),
+        (route) => false,
+      );
+      break;
 
-      case 2:
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const TimesheetScreen()),
-          (route) => route.isFirst,
-        );
-        break;
+    case 2:
+      Navigator.of(context).pushAndRemoveUntil(
+        _noTransitionRoute(const TimesheetScreen()),
+        (route) => route.isFirst,
+      );
+      break;
 
-      case 3:
-        Navigator.of(
-          context,
-        ).push(MaterialPageRoute(builder: (_) => const ProfileScreen()));
-        break;
-    }
+    case 3:
+      Navigator.of(context).pushAndRemoveUntil(
+        _noTransitionRoute(const ProfileScreen()),
+        (route) => route.isFirst,
+      );
+      break;
+  }
+}
+
+  Future<void> _refreshTimerScreen() async {
+    if (!mounted) return;
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+      _statusMessage = 'Refreshing timer...';
+    });
+
+    await _initializeFlow();
   }
 
   @override
@@ -1085,39 +1134,44 @@ static const Duration _onlineClockOutWriteTimeout = Duration(seconds: 8);
           body: SafeArea(
             child: Column(
               children: [
-                _buildTopBar(),
+               
                 Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (_showGeofenceWarning) ...[
-                          _buildGeofenceWarningCard(),
+                  child: RefreshIndicator(
+                    color: const Color(0xFF0D4DB3),
+                    onRefresh: _refreshTimerScreen,
+                    child: SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (_showGeofenceWarning) ...[
+                            _buildGeofenceWarningCard(),
+                            const SizedBox(height: 16),
+                          ],
+                          _buildAssignmentCard(),
                           const SizedBox(height: 16),
-                        ],
-                        _buildAssignmentCard(),
-                        const SizedBox(height: 16),
-                        _buildOjtHoursCard(),
-                        const SizedBox(height: 20),
-                        _buildTimerRing(),
-                        const SizedBox(height: 24),
-                        _buildActionButtons(geofenceReady),
-                        const SizedBox(height: 20),
-                        if (_errorMessage != null || _statusMessage != null)
-                          _buildStatusBanner(),
-                        _buildSpatialAwarenessCard(geofenceReady),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Logs and spatial coordinates are securely recorded server-side for institutional compliance. Tampering with session data is prohibited.',
-                          textAlign: TextAlign.center,
-                          style: GoogleFonts.dmSans(
-                            fontSize: 11,
-                            color: _mutedColor,
-                            height: 1.5,
+                          _buildOjtHoursCard(),
+                          const SizedBox(height: 20),
+                          _buildTimerRing(),
+                          const SizedBox(height: 24),
+                          _buildActionButtons(geofenceReady),
+                          const SizedBox(height: 20),
+                          if (_errorMessage != null || _statusMessage != null)
+                            _buildStatusBanner(),
+                          _buildSpatialAwarenessCard(geofenceReady),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Logs and spatial coordinates are securely recorded server-side for institutional compliance. Tampering with session data is prohibited.',
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.dmSans(
+                              fontSize: 11,
+                              color: _mutedColor,
+                              height: 1.5,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),

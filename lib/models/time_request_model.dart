@@ -52,7 +52,7 @@ class TimeRequestModel {
     required this.requestedStartTime,
     required this.requestedEndTime,
     required this.reason,
-    required this.proofNote,
+    this.proofNote = '',
     required this.status,
     required this.submittedAt,
     this.reviewedAt,

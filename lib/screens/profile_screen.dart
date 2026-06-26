@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../main.dart';
 import '../models/attendance_model.dart';
 import '../models/user_model.dart';
+import 'intern_home_screen.dart';
 import 'timer_screen.dart';
 import 'timesheet_screen.dart';
 import 'evaluation_detail_screen.dart';
@@ -22,9 +23,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final TextEditingController _supervisorCodeController =
       TextEditingController();
 
-  double _completedOjtHours = 0;
-  bool _isLoadingProgress = true;
-  bool _isJoiningSupervisor = false;
+ double _completedOjtHours = 0;
+bool _isLoadingProgress = true;
+bool _isJoiningSupervisor = false;
+
+Future<UserModel?>? _profileFuture;
+String? _profileFutureUid;
+
+Future<DocumentSnapshot<Map<String, dynamic>>>? _evaluationFuture;
+String? _evaluationFutureId;
 
   static const Color _blue = Color(0xFF0D4DB3);
   static const Color _navy = Color(0xFF0A2351);
@@ -56,27 +63,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
     super.dispose();
   }
 
+  Route<T> _noTransitionRoute<T>(Widget page) {
+    return PageRouteBuilder<T>(
+      pageBuilder: (context, animation, secondaryAnimation) => page,
+      transitionDuration: Duration.zero,
+      reverseTransitionDuration: Duration.zero,
+    );
+  }
+
   void _handleBottomNavTap(int index) {
     if (index == _selectedNavIndex) return;
 
     switch (index) {
       case 0:
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const AuthGate()),
+          _noTransitionRoute(const InternHomeScreen()),
           (route) => false,
         );
         break;
 
       case 1:
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const TimerScreen()),
+          _noTransitionRoute(const TimerScreen()),
           (route) => route.isFirst,
         );
         break;
 
       case 2:
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const TimesheetScreen()),
+          _noTransitionRoute(const TimesheetScreen()),
           (route) => route.isFirst,
         );
         break;
@@ -373,6 +388,52 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  Future<void> _refreshProfileData() async {
+  final uid = AppServices.of(context).authService.currentUser?.uid;
+
+  if (uid == null || uid.trim().isEmpty) return;
+
+  setState(() {
+    _isLoadingProgress = true;
+    _profileFutureUid = uid;
+    _profileFuture = AppServices.of(context).userRepository.getUserByUid(uid);
+    _evaluationFuture = null;
+    _evaluationFutureId = null;
+  });
+
+  await _profileFuture;
+  await _loadCompletedHours(uid);
+
+  if (!mounted) return;
+
+  setState(() {});
+}
+Future<UserModel?> _getProfileFuture(String uid) {
+  if (_profileFutureUid != uid || _profileFuture == null) {
+    _profileFutureUid = uid;
+    _profileFuture = AppServices.of(context).userRepository.getUserByUid(uid);
+  }
+
+  return _profileFuture!;
+}
+
+Future<DocumentSnapshot<Map<String, dynamic>>> _getEvaluationFuture(
+  String evaluationId,
+) {
+  if (_evaluationFutureId != evaluationId || _evaluationFuture == null) {
+    _evaluationFutureId = evaluationId;
+    _evaluationFuture = FirebaseFirestore.instance
+        .collection('evaluations')
+        .doc(evaluationId)
+        .get();
+  }
+
+  return _evaluationFuture!;
+}
+
+
+  
+
   @override
   Widget build(BuildContext context) {
     final services = AppServices.of(context);
@@ -397,7 +458,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             child: uid == null
                 ? _buildProblemState()
                 : FutureBuilder<UserModel?>(
-                    future: services.userRepository.getUserByUid(uid),
+                    future: _getProfileFuture(uid),
                     builder: (context, snapshot) {
                       if (snapshot.connectionState == ConnectionState.waiting) {
                         return const Center(
@@ -423,33 +484,38 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       return Column(
                         children: [
                           Expanded(
-                            child: SingleChildScrollView(
-                              padding: const EdgeInsets.fromLTRB(
-                                18,
-                                16,
-                                18,
-                                24,
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  _buildHeader(),
-                                  const SizedBox(height: 24),
-                                  _buildIdentityHeader(
-                                    displayName: displayName,
-                                    email: email,
-                                  ),
-                                  const SizedBox(height: 24),
-                                  _buildSupervisorJoinCard(user),
-                                  const SizedBox(height: 18),
-                                  _buildInternshipDetails(user),
-                                  const SizedBox(height: 18),
-                                  _buildProgressCard(user),
-                                  const SizedBox(height: 18),
-                                  _buildFinalEvaluationCard(user),
-                                  const SizedBox(height: 18),
-                                  _buildAccountCard(user),
-                                ],
+                            child: RefreshIndicator(
+                              color: _blue,
+                              onRefresh: _refreshProfileData,
+                              child: SingleChildScrollView(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                padding: const EdgeInsets.fromLTRB(
+                                  18,
+                                  16,
+                                  18,
+                                  24,
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    _buildHeader(),
+                                    const SizedBox(height: 24),
+                                    _buildIdentityHeader(
+                                      displayName: displayName,
+                                      email: email,
+                                    ),
+                                    const SizedBox(height: 24),
+                                    _buildSupervisorJoinCard(user),
+                                    const SizedBox(height: 18),
+                                    _buildInternshipDetails(user),
+                                    const SizedBox(height: 18),
+                                    _buildProgressCard(user),
+                                    const SizedBox(height: 18),
+                                    _buildFinalEvaluationCard(user),
+                                    const SizedBox(height: 18),
+                                    _buildAccountCard(user),
+                                  ],
+                                ),
                               ),
                             ),
                           ),

@@ -31,7 +31,7 @@ class TimeRequestRepository {
     required String requestedStartTime,
     required String requestedEndTime,
     required String reason,
-    required String proofNote,
+    String proofNote = '',
   }) {
     return submitMissingTimeRequest(
       internUid: internUid,
@@ -53,7 +53,7 @@ class TimeRequestRepository {
     required String requestedStartTime,
     required String requestedEndTime,
     required String reason,
-    required String proofNote,
+    String proofNote = '',
   }) async {
     final model = TimeRequestModel(
       internUid: internUid,
@@ -83,7 +83,7 @@ class TimeRequestRepository {
     required String requestedStartTime,
     required String requestedEndTime,
     required String reason,
-    required String proofNote,
+    String proofNote = '',
     required String originalClockInLogId,
     required String originalClockOutLogId,
     required String originalStartTime,

@@ -23,7 +23,6 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
   final _startTimeController = TextEditingController();
   final _endTimeController = TextEditingController();
   final _reasonController = TextEditingController();
-  final _proofNoteController = TextEditingController();
 
   DateTime? _requestDate;
   bool _isSubmitting = false;
@@ -75,7 +74,6 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
     _startTimeController.dispose();
     _endTimeController.dispose();
     _reasonController.dispose();
-    _proofNoteController.dispose();
     super.dispose();
   }
 
@@ -84,7 +82,7 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
       context: context,
       initialDate: _requestDate ?? DateTime.now(),
       firstDate: DateTime(2024),
-      lastDate: DateTime(2100),
+      lastDate: DateTime.now(),
       builder: (context, child) {
         if (!_isDarkMode) return child ?? const SizedBox.shrink();
 
@@ -221,6 +219,15 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
         return;
       }
 
+      final now = DateTime.now();
+
+if (requestedEnd.isAfter(now)) {
+  _setSubmitMessage(
+    'You cannot request a time that has not happened yet.',
+  );
+  return;
+}
+
       final attendanceLogs =
           await services.attendanceRepository.getAttendanceByStudent(
         currentUser.uid,
@@ -259,7 +266,6 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
           requestedStartTime: _startTimeController.text.trim(),
           requestedEndTime: _endTimeController.text.trim(),
           reason: _reasonController.text.trim(),
-          proofNote: _proofNoteController.text.trim(),
           originalClockInLogId: _selectedCorrectionSession!.clockInLogId,
           originalClockOutLogId: _selectedCorrectionSession!.clockOutLogId,
           originalStartTime: _formatTimeOnly(_selectedCorrectionSession!.start),
@@ -289,7 +295,6 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
           requestedStartTime: _startTimeController.text.trim(),
           requestedEndTime: _endTimeController.text.trim(),
           reason: _reasonController.text.trim(),
-          proofNote: _proofNoteController.text.trim(),
         );
       }
 
@@ -306,7 +311,6 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
         _startTimeController.clear();
         _endTimeController.clear();
         _reasonController.clear();
-        _proofNoteController.clear();
         _requestDate = null;
         _selectedCorrectionSession = null;
         _sessionsForSelectedDate = [];
@@ -757,20 +761,13 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
                       style: _inputTextStyle(),
                       decoration: _decor(
                         _requestType == TimeRequestType.correction
-                            ? 'Reason for correcting this log'
-                            : 'Reason for adjustment',
+                            ? 'Reason for correction'
+                            : 'Reason for missing time',
                       ),
                       validator: (value) =>
                           value == null || value.trim().isEmpty
                               ? 'Reason is required'
                               : null,
-                    ),
-                    const SizedBox(height: 10),
-                    TextFormField(
-                      controller: _proofNoteController,
-                      maxLines: 1,
-                      style: _inputTextStyle(),
-                      decoration: _decor('Proof note / attachment reference'),
                     ),
                     const SizedBox(height: 12),
                     if (_message != null) _buildMessageText(),
@@ -1451,48 +1448,50 @@ class _TimeRequestScreenState extends State<TimeRequestScreen> {
   }
 
   Widget _buildEmptyMessage({
-    required IconData icon,
-    required String title,
-    required String message,
-  }) {
-    return Center(
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(22),
-        decoration: BoxDecoration(
-          color: _cardColor,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: _borderColor),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: _blue, size: 34),
-            const SizedBox(height: 10),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: GoogleFonts.plusJakartaSans(
-                fontSize: 14,
-                fontWeight: FontWeight.w900,
-                color: _titleColor,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: GoogleFonts.plusJakartaSans(
-                fontSize: 12,
-                color: _mutedColor,
-                height: 1.4,
-              ),
-            ),
-          ],
-        ),
+  required IconData icon,
+  required String title,
+  required String message,
+}) {
+  return Align(
+    alignment: Alignment.topCenter,
+    child: Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 4),
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _borderColor),
       ),
-    );
-  }
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: _blue, size: 34),
+          const SizedBox(height: 10),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 14,
+              fontWeight: FontWeight.w900,
+              color: _titleColor,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 12,
+              color: _mutedColor,
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
 
   Widget _buildBottomNav() {
     final items = <(IconData, String)>[

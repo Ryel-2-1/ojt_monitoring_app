@@ -175,9 +175,10 @@ class _TimesheetScreenState extends State<TimesheetScreen> {
         break;
 
       case 3:
-        Navigator.of(
-          context,
-        ).push(_noTransitionRoute(const ProfileScreen()));
+        Navigator.of(context).pushAndRemoveUntil(
+          _noTransitionRoute(const ProfileScreen()),
+          (route) => route.isFirst,
+        );
         break;
     }
   }
@@ -185,8 +186,8 @@ class _TimesheetScreenState extends State<TimesheetScreen> {
   void _openGenerateTimesheet() {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => GenerateTimesheetScreen(
+      _noTransitionRoute(
+        GenerateTimesheetScreen(
           user: _user,
           sessions: _sessions,
           completedHours: _completedHours,
@@ -208,7 +209,7 @@ class _TimesheetScreenState extends State<TimesheetScreen> {
           body: SafeArea(
             child: Column(
               children: [
-                _buildTopBar(),
+                
                 Expanded(
                   child: RefreshIndicator(
                     color: const Color(0xFF0D4DB3),
@@ -227,8 +228,8 @@ class _TimesheetScreenState extends State<TimesheetScreen> {
 
   Widget _buildBody() {
     if (_isLoading) {
-      
       return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(24),
         children: const [
           SizedBox(height: 220),
@@ -239,6 +240,7 @@ class _TimesheetScreenState extends State<TimesheetScreen> {
 
     if (_errorMessage != null) {
       return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(24),
         children: [
           const SizedBox(height: 160),
@@ -250,8 +252,11 @@ class _TimesheetScreenState extends State<TimesheetScreen> {
         ],
       );
     }
-final bool canGenerateTimesheet = _sessions.isNotEmpty;
+
+    final bool canGenerateTimesheet = _sessions.isNotEmpty;
+
     return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       children: [
         _buildCurrentObjectiveCard(),
@@ -260,43 +265,43 @@ final bool canGenerateTimesheet = _sessions.isNotEmpty;
         const SizedBox(height: 16),
         _buildRecentSessionsCard(),
         const SizedBox(height: 22),
-       Align(
-  alignment: Alignment.centerRight,
-  child: SizedBox(
-    width: 150,
-    height: 44,
-    child: ElevatedButton.icon(
-      onPressed: canGenerateTimesheet ? _openGenerateTimesheet : null,
-      icon: Icon(
-        Icons.description_outlined,
-        size: 16,
-        color: canGenerateTimesheet ? Colors.white : _mutedColor,
-      ),
-      label: Text(
-        'Generate\nTimesheet',
-        textAlign: TextAlign.center,
-        style: GoogleFonts.dmSans(
-          fontSize: 10,
-          height: 1.05,
-          fontWeight: FontWeight.w700,
-          color: canGenerateTimesheet ? Colors.white : _mutedColor,
-        ),
-      ),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: const Color(0xFF0D4DB3),
-        foregroundColor: Colors.white,
-        disabledBackgroundColor:
-            _isDarkMode ? const Color(0xFF374151) : const Color(0xFFE5E7EB),
-        disabledForegroundColor: _mutedColor,
-        elevation: 0,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-      ),
-    ),
+        Align(
+          alignment: Alignment.centerRight,
+          child: SizedBox(
+            width: 150,
+            height: 44,
+            child: ElevatedButton.icon(
+              onPressed: canGenerateTimesheet ? _openGenerateTimesheet : null,
+              icon: Icon(
+                Icons.description_outlined,
+                size: 16,
+                color: canGenerateTimesheet ? Colors.white : _mutedColor,
+              ),
+              label: Text(
+  'Generate\nTimesheet',
+  textAlign: TextAlign.center,
+  style: GoogleFonts.dmSans(
+    fontSize: 10,
+    height: 1.05,
+    fontWeight: FontWeight.w700,
+    color: canGenerateTimesheet ? Colors.white : _mutedColor,
   ),
 ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0D4DB3),
+                foregroundColor: Colors.white,
+                disabledBackgroundColor:
+                    _isDarkMode ? const Color(0xFF374151) : const Color(0xFFE5E7EB),
+                disabledForegroundColor: _mutedColor,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        ),
       ],
     );
   }

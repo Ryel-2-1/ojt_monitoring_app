@@ -386,8 +386,11 @@ class _InternHomeScreenState extends State<InternHomeScreen> {
         );
         break;
       case 3:
-        Navigator.of(context).push(_noTransitionRoute(const ProfileScreen()));
-        break;
+  Navigator.of(context).pushAndRemoveUntil(
+    _noTransitionRoute(const ProfileScreen()),
+    (route) => route.isFirst,
+  );
+  break;
     }
   }
 
@@ -415,6 +418,7 @@ class _InternHomeScreenState extends State<InternHomeScreen> {
                     color: _blue,
                     onRefresh: () => _refreshHomeData(),
                     child: ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
                       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
                       children: [
                         _buildWelcomeHeader(name),
