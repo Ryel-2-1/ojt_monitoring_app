@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-
+import 'package:geolocator_android/geolocator_android.dart';
 import '../main.dart';
 import '../models/attendance_model.dart';
 import '../repositories/attendance_repository.dart';
@@ -57,8 +57,11 @@ class _TimerScreenState extends State<TimerScreen>
   Timer? _outsideCountdownTimer;
 
   static const double _maxReliableAccuracyMeters = 50.0;
-  static const Duration _outsideGeofenceGracePeriod = Duration(seconds: 45);
-  static const Duration _onlineClockOutWriteTimeout = Duration(seconds: 8);
+static const Duration _outsideGeofenceGracePeriod = Duration(seconds: 45);
+static const double _geofenceReturnBufferMeters = 10.0;
+static const int _autoStopConfirmationSamples = 2;
+static const Duration _autoStopConfirmationGap = Duration(seconds: 2);
+static const Duration _onlineClockOutWriteTimeout = Duration(seconds: 8);
   static const Duration _liveLocationWriteTimeout = Duration(seconds: 5);
   static const String _activeTimerBoxName = 'active_timer_session';
   static const String _activeTimerClockInKey = 'clockInTime';
@@ -425,96 +428,98 @@ class _TimerScreenState extends State<TimerScreen>
     }
 
     _positionStreamSub =
-        Geolocator.getPositionStream(
-          locationSettings: const LocationSettings(
-            accuracy: LocationAccuracy.high,
-            distanceFilter: 15,
-          ),
-        ).listen((Position position) async {
-          try {
-            await services.liveLocationRepository.upsertLiveLocation(
-              uid: currentUser.uid,
-              fullName: currentUser.displayName ?? 'Intern',
-              email: currentUser.email ?? '',
-              latitude: position.latitude,
-              longitude: position.longitude,
-              accuracy: position.accuracy,
-              isClockedIn: true,
-              lastStatus: 'Clock-In',
-            );
+    Geolocator.getPositionStream(
+      locationSettings:  AndroidSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 0,
+        intervalDuration: Duration(seconds: 5),
+      ),
+    ).listen((Position position) async {
+      try {
+        await services.liveLocationRepository.upsertLiveLocation(
+          uid: currentUser.uid,
+          fullName: currentUser.displayName ?? 'Intern',
+          email: currentUser.email ?? '',
+          latitude: position.latitude,
+          longitude: position.longitude,
+          accuracy: position.accuracy,
+          isClockedIn: true,
+          lastStatus: 'Clock-In',
+        );
 
-            await _evaluateGeofenceForAutoStop(position);
-          } catch (e) {
-            debugPrint('Live tracking update failed: $e');
-          }
-        });
+        await _evaluateGeofenceForAutoStop(position);
+      } catch (e) {
+        debugPrint('Live tracking update failed: $e');
+      }
+    });
   }
 
   Future<void> _evaluateGeofenceForAutoStop(Position position) async {
-    if (!_isClockedIn ||
-        _isAutoStopping ||
-        _targetLat == null ||
-        _targetLng == null ||
-        _allowedRadius == null) {
-      return;
-    }
+  if (!_isClockedIn ||
+      _isAutoStopping ||
+      _targetLat == null ||
+      _targetLng == null ||
+      _allowedRadius == null) {
+    return;
+  }
 
-    if (position.accuracy > _maxReliableAccuracyMeters) {
-      debugPrint(
-        'Ignoring geofence check due to weak GPS accuracy: ${position.accuracy}m',
-      );
-      return;
-    }
-
-    final distance = _distanceMeters(
-      position.latitude,
-      position.longitude,
-      _targetLat!,
-      _targetLng!,
+  if (position.accuracy > _maxReliableAccuracyMeters) {
+    debugPrint(
+      'Ignoring geofence check due to weak GPS accuracy: ${position.accuracy}m',
     );
+    return;
+  }
 
-    final isOutside = distance > _allowedRadius!;
+  final distance = _distanceMeters(
+    position.latitude,
+    position.longitude,
+    _targetLat!,
+    _targetLng!,
+  );
 
-    if (!isOutside) {
-      _resetOutsideGeofenceWarning();
+  final effectiveRadius = _allowedRadius! + _geofenceReturnBufferMeters;
+  final isOutside = distance > effectiveRadius;
 
-      if (mounted && _statusMessage?.startsWith('Outside geofence') == true) {
-        setState(() {
-          _statusMessage = 'Location verified. You are inside the geofence.';
-        });
-      }
-
-      return;
-    }
-
-    _outsideGeofenceStartedAt ??= DateTime.now();
-
-    _startOutsideGeofenceWarning();
+  if (!isOutside) {
+    _resetOutsideGeofenceWarning();
 
     if (mounted) {
       setState(() {
-        _statusMessage =
-            'Outside geofence detected. Rechecking before auto clock-out...';
+        _statusMessage = 'Location verified. You are inside the geofence.';
       });
     }
 
-    final outsideDuration = DateTime.now().difference(
-      _outsideGeofenceStartedAt!,
-    );
-
-    if (outsideDuration < _outsideGeofenceGracePeriod) {
-      _outsideGeofenceTimer?.cancel();
-
-      _outsideGeofenceTimer = Timer(_outsideGeofenceGracePeriod, () async {
-        if (!mounted) return;
-        await _confirmOutsideAndAutoStop();
-      });
-
-      return;
-    }
-
-    await _confirmOutsideAndAutoStop();
+    return;
   }
+
+  _outsideGeofenceStartedAt ??= DateTime.now();
+
+  _startOutsideGeofenceWarning();
+
+  if (mounted) {
+    setState(() {
+      _statusMessage =
+          'Outside geofence detected. Rechecking before auto clock-out...';
+    });
+  }
+
+  final outsideDuration = DateTime.now().difference(
+    _outsideGeofenceStartedAt!,
+  );
+
+  if (outsideDuration < _outsideGeofenceGracePeriod) {
+    _outsideGeofenceTimer?.cancel();
+
+    _outsideGeofenceTimer = Timer(_outsideGeofenceGracePeriod, () async {
+      if (!mounted) return;
+      await _confirmOutsideAndAutoStop();
+    });
+
+    return;
+  }
+
+  await _confirmOutsideAndAutoStop();
+}
 
   Future<void> _confirmOutsideAndAutoStop() async {
     if (!_isClockedIn ||

@@ -42,7 +42,9 @@ class _WebRegisterScreenState extends State<WebRegisterScreen> {
     }
 
     if (!_agreedToTerms) {
-      setState(() => _errorMessage = 'You must agree to the Terms and Privacy Policy.');
+      setState(
+        () => _errorMessage = 'You must agree to the Terms and Privacy Policy.',
+      );
       return;
     }
 
@@ -83,6 +85,38 @@ class _WebRegisterScreenState extends State<WebRegisterScreen> {
     Navigator.pop(context);
   }
 
+  void _showPlaceholderDialog(String title) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(
+          title,
+          style: GoogleFonts.plusJakartaSans(
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        content: Text(
+          'This page is currently a placeholder and will be added later.',
+          style: GoogleFonts.plusJakartaSans(
+            fontSize: 13,
+            height: 1.4,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Close',
+              style: GoogleFonts.plusJakartaSans(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -94,7 +128,10 @@ class _WebRegisterScreenState extends State<WebRegisterScreen> {
             Expanded(
               child: Center(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 24),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 36,
+                    vertical: 24,
+                  ),
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 1100),
                     child: Row(
@@ -116,7 +153,6 @@ class _WebRegisterScreenState extends State<WebRegisterScreen> {
                 ),
               ),
             ),
-            _buildFooter(),
           ],
         ),
       ),
@@ -124,22 +160,22 @@ class _WebRegisterScreenState extends State<WebRegisterScreen> {
   }
 
   Widget _buildTopBar() {
-  return Padding(
-    padding: const EdgeInsets.fromLTRB(18, 18, 18, 10),
-    child: Row(
-      children: [
-        Text(
-          'GeoAI Monitor',
-          style: GoogleFonts.plusJakartaSans(
-            fontSize: 14,
-            fontWeight: FontWeight.w800,
-            color: const Color(0xFF0A3D91),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 10),
+      child: Row(
+        children: [
+          Text(
+            'GeoAI Monitor',
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+              color: const Color(0xFF0A3D91),
+            ),
           ),
-        ),
-      ],
-    ),
-  );
-}
+        ],
+      ),
+    );
+  }
 
   Widget _buildLeftPanel() {
     return Column(
@@ -246,7 +282,6 @@ class _WebRegisterScreenState extends State<WebRegisterScreen> {
             ),
           ),
           const SizedBox(height: 28),
-
           _buildLabel('Full Name'),
           const SizedBox(height: 8),
           _buildTextField(
@@ -264,7 +299,6 @@ class _WebRegisterScreenState extends State<WebRegisterScreen> {
               return null;
             },
           ),
-
           const SizedBox(height: 20),
           _buildLabel('Work Email'),
           const SizedBox(height: 8),
@@ -278,14 +312,16 @@ class _WebRegisterScreenState extends State<WebRegisterScreen> {
               if (value == null || value.trim().isEmpty) {
                 return 'Email is required';
               }
+
               final email = value.trim();
+
               if (!email.contains('@') || !email.contains('.')) {
                 return 'Enter a valid email';
               }
+
               return null;
             },
           ),
-
           const SizedBox(height: 20),
           Row(
             children: [
@@ -328,7 +364,10 @@ class _WebRegisterScreenState extends State<WebRegisterScreen> {
                       hintText: '••••••••',
                       obscureText: _obscureConfirmPassword,
                       toggle: () {
-                        setState(() => _obscureConfirmPassword = !_obscureConfirmPassword);
+                        setState(
+                          () => _obscureConfirmPassword =
+                              !_obscureConfirmPassword,
+                        );
                       },
                       textInputAction: TextInputAction.done,
                       onFieldSubmitted: (_) {
@@ -348,61 +387,12 @@ class _WebRegisterScreenState extends State<WebRegisterScreen> {
               ),
             ],
           ),
-
           const SizedBox(height: 16),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Checkbox(
-                value: _agreedToTerms,
-                onChanged: _isLoading
-                    ? null
-                    : (value) {
-                        setState(() => _agreedToTerms = value ?? false);
-                      },
-                activeColor: const Color(0xFF0D4DB3),
-              ),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 10),
-                  child: RichText(
-                    text: TextSpan(
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 12,
-                        color: Colors.black54,
-                        height: 1.5,
-                      ),
-                      children: const [
-                        TextSpan(text: 'I agree to the '),
-                        TextSpan(
-                          text: 'Terms of Service',
-                          style: TextStyle(
-                            color: Color(0xFF0D4DB3),
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        TextSpan(text: ' and '),
-                        TextSpan(
-                          text: 'Privacy Policy',
-                          style: TextStyle(
-                            color: Color(0xFF0D4DB3),
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        TextSpan(text: ' regarding data monitoring and GeoAI processing.'),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-
+          _buildTermsAgreement(),
           if (_errorMessage != null) ...[
             const SizedBox(height: 12),
             _buildErrorBanner(),
           ],
-
           const SizedBox(height: 18),
           SizedBox(
             width: double.infinity,
@@ -412,7 +402,8 @@ class _WebRegisterScreenState extends State<WebRegisterScreen> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF0D4DB3),
                 foregroundColor: Colors.white,
-                disabledBackgroundColor: const Color(0xFF0D4DB3).withOpacity(0.6),
+                disabledBackgroundColor:
+                    const Color(0xFF0D4DB3).withOpacity(0.6),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
@@ -437,11 +428,9 @@ class _WebRegisterScreenState extends State<WebRegisterScreen> {
                     ),
             ),
           ),
-
           const SizedBox(height: 48),
           Divider(color: Colors.grey[300]),
           const SizedBox(height: 22),
-
           Center(
             child: Wrap(
               crossAxisAlignment: WrapCrossAlignment.center,
@@ -469,6 +458,80 @@ class _WebRegisterScreenState extends State<WebRegisterScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildTermsAgreement() {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Checkbox(
+          value: _agreedToTerms,
+          onChanged: _isLoading
+              ? null
+              : (value) {
+                  setState(() => _agreedToTerms = value ?? false);
+                },
+          activeColor: const Color(0xFF0D4DB3),
+        ),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: Wrap(
+              children: [
+                Text(
+                  'I agree to the ',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 12,
+                    color: Colors.black54,
+                    height: 1.5,
+                  ),
+                ),
+                InkWell(
+                  onTap: () => _showPlaceholderDialog('Terms of Service'),
+                  child: Text(
+                    'Terms of Service',
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 12,
+                      color: const Color(0xFF0D4DB3),
+                      fontWeight: FontWeight.w700,
+                      height: 1.5,
+                    ),
+                  ),
+                ),
+                Text(
+                  ' and ',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 12,
+                    color: Colors.black54,
+                    height: 1.5,
+                  ),
+                ),
+                InkWell(
+                  onTap: () => _showPlaceholderDialog('Privacy Policy'),
+                  child: Text(
+                    'Privacy Policy',
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 12,
+                      color: const Color(0xFF0D4DB3),
+                      fontWeight: FontWeight.w700,
+                      height: 1.5,
+                    ),
+                  ),
+                ),
+                Text(
+                  ' regarding data monitoring and GeoAI processing.',
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 12,
+                    color: Colors.black54,
+                    height: 1.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -542,11 +605,17 @@ class _WebRegisterScreenState extends State<WebRegisterScreen> {
           color: Colors.grey[400],
           fontSize: 14,
         ),
-        prefixIcon: Icon(Icons.lock_outline, size: 20, color: Colors.grey[600]),
+        prefixIcon: Icon(
+          Icons.lock_outline,
+          size: 20,
+          color: Colors.grey[600],
+        ),
         suffixIcon: IconButton(
           onPressed: toggle,
           icon: Icon(
-            obscureText ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+            obscureText
+                ? Icons.visibility_off_outlined
+                : Icons.visibility_outlined,
             size: 20,
             color: Colors.grey[600],
           ),
@@ -575,7 +644,11 @@ class _WebRegisterScreenState extends State<WebRegisterScreen> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.error_outline, color: Color(0xFFC62828), size: 18),
+          const Icon(
+            Icons.error_outline,
+            color: Color(0xFFC62828),
+            size: 18,
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -589,32 +662,6 @@ class _WebRegisterScreenState extends State<WebRegisterScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildFooter() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(0, 0, 0, 22),
-      child: Wrap(
-        spacing: 22,
-        alignment: WrapAlignment.center,
-        children: [
-          _buildFooterLink('Privacy Policy'),
-          _buildFooterLink('Terms of Service'),
-          _buildFooterLink('Security'),
-          _buildFooterLink('Contact'),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFooterLink(String label) {
-    return Text(
-      label,
-      style: GoogleFonts.plusJakartaSans(
-        fontSize: 12,
-        color: const Color(0xFF7C8AA5),
       ),
     );
   }

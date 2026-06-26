@@ -23,6 +23,13 @@ class _WebLoginScreenState extends State<WebLoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
+  static const Color _primaryBlue = Color(0xFF0046AD);
+  static const Color _leftPanelBlue = Color(0xFF002868);
+  static const Color _pageWhite = Color(0xFFFFFFFF);
+  static const Color _fieldFill = Color(0xFFF5F6FA);
+  static const Color _textDark = Color(0xFF111827);
+  static const Color _textMuted = Color(0xFF6B7280);
+
   @override
   void dispose() {
     _emailController.dispose();
@@ -40,11 +47,21 @@ class _WebLoginScreenState extends State<WebLoginScreen> {
 
   Future<void> _goToUnauthorized() async {
     if (!mounted) return;
+
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
         builder: (_) => const WebUnauthorizedScreen(),
       ),
+    );
+  }
+
+  Future<void> _goToRootAuthGate() async {
+    if (!mounted) return;
+
+    Navigator.of(context).pushNamedAndRemoveUntil(
+      '/',
+      (route) => false,
     );
   }
 
@@ -64,8 +81,7 @@ class _WebLoginScreenState extends State<WebLoginScreen> {
         password: _passwordController.text,
       );
 
-      if (!mounted) return;
-      setState(() => _isLoading = false);
+      await _goToRootAuthGate();
     } on AuthException catch (e) {
       if (!mounted) return;
 
@@ -81,6 +97,7 @@ class _WebLoginScreenState extends State<WebLoginScreen> {
       });
     } catch (_) {
       if (!mounted) return;
+
       setState(() {
         _errorMessage = 'An unexpected error occurred. Please try again.';
         _isLoading = false;
@@ -105,9 +122,7 @@ class _WebLoginScreenState extends State<WebLoginScreen> {
         return;
       }
 
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      await _goToRootAuthGate();
     } on AuthException catch (e) {
       if (!mounted) return;
 
@@ -123,6 +138,7 @@ class _WebLoginScreenState extends State<WebLoginScreen> {
       });
     } catch (_) {
       if (!mounted) return;
+
       setState(() {
         _errorMessage = 'Google Sign-In failed. Please try again.';
         _isLoading = false;
@@ -132,82 +148,101 @@ class _WebLoginScreenState extends State<WebLoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Row(
-        children: [
-          Expanded(
-            flex: 1,
-            child: Container(
-              color: const Color(0xFF002868),
-              padding: const EdgeInsets.all(64),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'SUPERVISOR PORTAL',
-                    style: GoogleFonts.plusJakartaSans(
-                      color: Colors.white70,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
+    return Theme(
+      data: ThemeData.light().copyWith(
+        scaffoldBackgroundColor: _pageWhite,
+        textSelectionTheme: const TextSelectionThemeData(
+          cursorColor: _primaryBlue,
+          selectionColor: Color(0x334285F4),
+          selectionHandleColor: _primaryBlue,
+        ),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: _primaryBlue,
+          brightness: Brightness.light,
+        ),
+      ),
+      child: Scaffold(
+        backgroundColor: _pageWhite,
+        body: Row(
+          children: [
+            Expanded(
+              flex: 1,
+              child: Container(
+                color: _leftPanelBlue,
+                padding: const EdgeInsets.all(64),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'SUPERVISOR PORTAL',
+                      style: GoogleFonts.plusJakartaSans(
+                        color: Colors.white70,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 24),
-                  Text(
-                    'Welcome Back\nto Professional\nExcellence.',
-                    style: GoogleFonts.plusJakartaSans(
-                      color: Colors.white,
-                      fontSize: 48,
-                      fontWeight: FontWeight.w800,
-                      height: 1.1,
+                    const SizedBox(height: 24),
+                    Text(
+                      'Welcome Back\nto Professional\nExcellence.',
+                      style: GoogleFonts.plusJakartaSans(
+                        color: Colors.white,
+                        fontSize: 48,
+                        fontWeight: FontWeight.w800,
+                        height: 1.1,
+                      ),
                     ),
-                  ),
-                  const Spacer(),
-                ],
+                    const Spacer(),
+                  ],
+                ),
               ),
             ),
-          ),
-          Expanded(
-            flex: 1,
-            child: Center(
+            Expanded(
+              flex: 1,
               child: Container(
-                constraints: const BoxConstraints(maxWidth: 400),
-                padding: const EdgeInsets.all(32),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Supervisor Sign In',
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                        ),
+                color: _pageWhite,
+                child: Center(
+                  child: Container(
+                    constraints: const BoxConstraints(maxWidth: 400),
+                    padding: const EdgeInsets.all(32),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Supervisor Sign In',
+                            style: GoogleFonts.plusJakartaSans(
+                              color: _textDark,
+                              fontSize: 28,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 32),
+                          _buildEmailField(),
+                          const SizedBox(height: 16),
+                          _buildPasswordField(),
+                          const SizedBox(height: 32),
+                          _buildSignInButton(),
+                          const SizedBox(height: 16),
+                          _buildDivider(),
+                          const SizedBox(height: 16),
+                          _buildGoogleButton(),
+                          if (_errorMessage != null) ...[
+                            const SizedBox(height: 16),
+                            _buildErrorBanner(),
+                          ],
+                          const SizedBox(height: 24),
+                          Center(child: _buildRegisterLink(context)),
+                        ],
                       ),
-                      const SizedBox(height: 32),
-                      _buildEmailField(),
-                      const SizedBox(height: 16),
-                      _buildPasswordField(),
-                      const SizedBox(height: 32),
-                      _buildSignInButton(),
-                      const SizedBox(height: 16),
-                      _buildDivider(),
-                      const SizedBox(height: 16),
-                      _buildGoogleButton(),
-                      if (_errorMessage != null) ...[
-                        const SizedBox(height: 16),
-                        _buildErrorBanner(),
-                      ],
-                      const SizedBox(height: 24),
-                      Center(child: _buildRegisterLink(context)),
-                    ],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -219,6 +254,7 @@ class _WebLoginScreenState extends State<WebLoginScreen> {
         Text(
           'Work Email',
           style: GoogleFonts.plusJakartaSans(
+            color: _textDark,
             fontWeight: FontWeight.w700,
             fontSize: 12,
           ),
@@ -228,24 +264,51 @@ class _WebLoginScreenState extends State<WebLoginScreen> {
           controller: _emailController,
           keyboardType: TextInputType.emailAddress,
           textInputAction: TextInputAction.next,
+          style: GoogleFonts.plusJakartaSans(
+            color: _textDark,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+          ),
           decoration: InputDecoration(
-            prefixIcon: const Icon(Icons.email_outlined, size: 20),
+            prefixIcon: const Icon(
+              Icons.email_outlined,
+              size: 20,
+              color: Color(0xFF9CA3AF),
+            ),
             hintText: 'john.doe@geosystems.com',
+            hintStyle: GoogleFonts.plusJakartaSans(
+              color: const Color(0xFF9CA3AF),
+              fontSize: 14,
+            ),
             filled: true,
-            fillColor: Colors.grey[100],
+            fillColor: _fieldFill,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
               borderSide: BorderSide.none,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide.none,
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(
+                color: _primaryBlue,
+                width: 1.5,
+              ),
             ),
           ),
           validator: (value) {
             if (value == null || value.trim().isEmpty) {
               return 'Email is required';
             }
+
             final email = value.trim();
+
             if (!email.contains('@') || !email.contains('.')) {
               return 'Enter a valid email';
             }
+
             return null;
           },
         ),
@@ -263,6 +326,7 @@ class _WebLoginScreenState extends State<WebLoginScreen> {
             Text(
               'Password',
               style: GoogleFonts.plusJakartaSans(
+                color: _textDark,
                 fontWeight: FontWeight.w700,
                 fontSize: 12,
               ),
@@ -279,7 +343,7 @@ class _WebLoginScreenState extends State<WebLoginScreen> {
               child: Text(
                 'Forgot Password?',
                 style: GoogleFonts.plusJakartaSans(
-                  color: const Color(0xFF0046AD),
+                  color: _primaryBlue,
                   fontSize: 12,
                   fontWeight: FontWeight.bold,
                 ),
@@ -297,14 +361,38 @@ class _WebLoginScreenState extends State<WebLoginScreen> {
               _handleEmailSignIn();
             }
           },
+          style: GoogleFonts.plusJakartaSans(
+            color: _textDark,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+          ),
           decoration: InputDecoration(
-            prefixIcon: const Icon(Icons.lock_outline, size: 20),
+            prefixIcon: const Icon(
+              Icons.lock_outline,
+              size: 20,
+              color: Color(0xFF9CA3AF),
+            ),
             hintText: '••••••••',
+            hintStyle: GoogleFonts.plusJakartaSans(
+              color: const Color(0xFF9CA3AF),
+              fontSize: 14,
+            ),
             filled: true,
-            fillColor: Colors.grey[100],
+            fillColor: _fieldFill,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
               borderSide: BorderSide.none,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide.none,
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(
+                color: _primaryBlue,
+                width: 1.5,
+              ),
             ),
             suffixIcon: IconButton(
               onPressed: () {
@@ -314,6 +402,7 @@ class _WebLoginScreenState extends State<WebLoginScreen> {
                 _obscurePassword
                     ? Icons.visibility_off_outlined
                     : Icons.visibility_outlined,
+                color: const Color(0xFF9CA3AF),
                 size: 20,
               ),
             ),
@@ -322,9 +411,11 @@ class _WebLoginScreenState extends State<WebLoginScreen> {
             if (value == null || value.isEmpty) {
               return 'Password is required';
             }
+
             if (value.length < 6) {
               return 'Minimum 6 characters';
             }
+
             return null;
           },
         ),
@@ -339,9 +430,9 @@ class _WebLoginScreenState extends State<WebLoginScreen> {
       child: ElevatedButton(
         onPressed: _isLoading ? null : _handleEmailSignIn,
         style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF0046AD),
+          backgroundColor: _primaryBlue,
           foregroundColor: Colors.white,
-          disabledBackgroundColor: const Color(0xFF0046AD).withOpacity(0.6),
+          disabledBackgroundColor: _primaryBlue.withOpacity(0.6),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(10),
           ),
@@ -370,18 +461,22 @@ class _WebLoginScreenState extends State<WebLoginScreen> {
   Widget _buildDivider() {
     return Row(
       children: [
-        Expanded(child: Divider(color: Colors.grey[300])),
+        const Expanded(
+          child: Divider(color: Color(0xFFD1D5DB)),
+        ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Text(
             'or continue with',
             style: GoogleFonts.plusJakartaSans(
               fontSize: 12,
-              color: Colors.grey[500],
+              color: _textMuted,
             ),
           ),
         ),
-        Expanded(child: Divider(color: Colors.grey[300])),
+        const Expanded(
+          child: Divider(color: Color(0xFFD1D5DB)),
+        ),
       ],
     );
   }
@@ -393,7 +488,9 @@ class _WebLoginScreenState extends State<WebLoginScreen> {
       child: OutlinedButton(
         onPressed: _isLoading ? null : _handleGoogleSignIn,
         style: OutlinedButton.styleFrom(
-          side: BorderSide(color: Colors.grey[300]!),
+          backgroundColor: _pageWhite,
+          foregroundColor: _textDark,
+          side: const BorderSide(color: Color(0xFFD1D5DB)),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
@@ -403,14 +500,35 @@ class _WebLoginScreenState extends State<WebLoginScreen> {
           children: [
             RichText(
               text: const TextSpan(
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
                 children: [
-                  TextSpan(text: 'G', style: TextStyle(color: Color(0xFF4285F4))),
-                  TextSpan(text: 'o', style: TextStyle(color: Color(0xFFEA4335))),
-                  TextSpan(text: 'o', style: TextStyle(color: Color(0xFFFBBC05))),
-                  TextSpan(text: 'g', style: TextStyle(color: Color(0xFF4285F4))),
-                  TextSpan(text: 'l', style: TextStyle(color: Color(0xFF34A853))),
-                  TextSpan(text: 'e', style: TextStyle(color: Color(0xFFEA4335))),
+                  TextSpan(
+                    text: 'G',
+                    style: TextStyle(color: Color(0xFF4285F4)),
+                  ),
+                  TextSpan(
+                    text: 'o',
+                    style: TextStyle(color: Color(0xFFEA4335)),
+                  ),
+                  TextSpan(
+                    text: 'o',
+                    style: TextStyle(color: Color(0xFFFBBC05)),
+                  ),
+                  TextSpan(
+                    text: 'g',
+                    style: TextStyle(color: Color(0xFF4285F4)),
+                  ),
+                  TextSpan(
+                    text: 'l',
+                    style: TextStyle(color: Color(0xFF34A853)),
+                  ),
+                  TextSpan(
+                    text: 'e',
+                    style: TextStyle(color: Color(0xFFEA4335)),
+                  ),
                 ],
               ),
             ),
@@ -420,7 +538,7 @@ class _WebLoginScreenState extends State<WebLoginScreen> {
               style: GoogleFonts.plusJakartaSans(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
-                color: Colors.grey[800],
+                color: _textDark,
               ),
             ),
           ],
@@ -441,7 +559,11 @@ class _WebLoginScreenState extends State<WebLoginScreen> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.error_outline, color: Color(0xFFC62828), size: 18),
+          const Icon(
+            Icons.error_outline,
+            color: Color(0xFFC62828),
+            size: 18,
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -475,7 +597,7 @@ class _WebLoginScreenState extends State<WebLoginScreen> {
         child: Text(
           'Need an account? Register here',
           style: GoogleFonts.plusJakartaSans(
-            color: const Color(0xFF0046AD),
+            color: _primaryBlue,
             fontSize: 13,
             fontWeight: FontWeight.w600,
           ),
