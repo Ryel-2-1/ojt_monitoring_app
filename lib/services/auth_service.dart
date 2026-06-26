@@ -301,8 +301,11 @@ class AuthService {
 
     if (!wrongPlatform) return;
 
-    await signOut();
-
+    // Do not auto sign out here.
+    // Firebase emits the signed-in user immediately after login, so signing out
+    // inside this method makes the wrong-platform warning screen flash for a
+    // moment and then return to Login. Keeping the session allows AuthGate to
+    // show the proper AccessProblemScreen until the user taps Sign Out.
     if (kIsWeb) {
       throw const AuthException(
         code: 'wrong-platform',

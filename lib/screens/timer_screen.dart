@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 
 import '../main.dart';
 import '../models/attendance_model.dart';
@@ -59,6 +60,8 @@ class _TimerScreenState extends State<TimerScreen>
   static const Duration _outsideGeofenceGracePeriod = Duration(seconds: 45);
   static const Duration _onlineClockOutWriteTimeout = Duration(seconds: 8);
   static const Duration _liveLocationWriteTimeout = Duration(seconds: 5);
+  static const String _activeTimerBoxName = 'active_timer_session';
+  static const String _activeTimerClockInKey = 'clockInTime';
 
   int? _requiredOjtHours;
   double _completedOjtHours = 0;
@@ -176,25 +179,47 @@ class _TimerScreenState extends State<TimerScreen>
       _completedOjtHours = _calculateCompletedHours(allLogs);
 
       final latestLog = await services.attendanceRepository.getLatestLog(uid);
+      final savedClockInTime = await _getSavedActiveTimerSession(uid);
 
       bool alreadyClockedIn = false;
       String? restoredStatusMessage;
+      DateTime? activeClockInTime;
 
       if (latestLog?.status == AttendanceStatus.clockIn) {
+        activeClockInTime = latestLog!.timestamp;
+        await _saveActiveTimerSession(
+          uid: uid,
+          clockInTime: activeClockInTime,
+        );
+      } else if (savedClockInTime != null) {
+        final latestIsNewerClockOut =
+            latestLog?.status == AttendanceStatus.clockOut &&
+            latestLog!.timestamp.isAfter(savedClockInTime);
+
+        if (latestIsNewerClockOut) {
+          await _clearActiveTimerSession(uid);
+        } else {
+          activeClockInTime = savedClockInTime;
+          restoredStatusMessage = 'Active timer session restored.';
+        }
+      }
+
+      if (activeClockInTime != null) {
         final hasPendingClockOut = await _hasPendingClockOutForUser(
           uid,
-          after: latestLog!.timestamp,
+          after: activeClockInTime,
         );
 
         if (hasPendingClockOut) {
           alreadyClockedIn = false;
+          await _clearActiveTimerSession(uid);
           _stopTimer(updateUi: false);
           restoredStatusMessage =
               'Clock-Out is saved offline and waiting to sync. You are not currently on session.';
         } else {
           alreadyClockedIn = true;
-          _clockInTime = latestLog.timestamp;
-          _startTimer(_clockInTime!);
+          _clockInTime = activeClockInTime;
+          _startTimer(activeClockInTime);
           await _startLiveTracking();
         }
       }
@@ -294,6 +319,39 @@ class _TimerScreenState extends State<TimerScreen>
     setState(() {
       _completedOjtHours = _calculateCompletedHours(allLogs);
     });
+  }
+
+  Future<Box<Map>> _openActiveTimerBox() async {
+    return Hive.openBox<Map>(_activeTimerBoxName);
+  }
+
+  Future<void> _saveActiveTimerSession({
+    required String uid,
+    required DateTime clockInTime,
+  }) async {
+    final box = await _openActiveTimerBox();
+
+    await box.put(uid, {
+      'uid': uid,
+      _activeTimerClockInKey: clockInTime.toIso8601String(),
+    });
+  }
+
+  Future<DateTime?> _getSavedActiveTimerSession(String uid) async {
+    final box = await _openActiveTimerBox();
+    final raw = box.get(uid);
+
+    if (raw == null) return null;
+
+    final rawClockInTime = raw[_activeTimerClockInKey]?.toString();
+    if (rawClockInTime == null || rawClockInTime.trim().isEmpty) return null;
+
+    return DateTime.tryParse(rawClockInTime);
+  }
+
+  Future<void> _clearActiveTimerSession(String uid) async {
+    final box = await _openActiveTimerBox();
+    await box.delete(uid);
   }
 
   void _startTimer(DateTime startTime) {
@@ -866,6 +924,11 @@ class _TimerScreenState extends State<TimerScreen>
     String message, {
     required bool refreshCompletedHours,
   }) async {
+    final uid = AppServices.of(context).authService.currentUser?.uid;
+    if (uid != null && uid.trim().isNotEmpty) {
+      await _clearActiveTimerSession(uid);
+    }
+
     _stopTimer(updateUi: false);
     await _stopLiveTracking();
 
@@ -930,10 +993,12 @@ class _TimerScreenState extends State<TimerScreen>
       });
 
       if (nowClockedIn) {
+        await _saveActiveTimerSession(uid: uid, clockInTime: confirmedAt);
         _clockInTime = confirmedAt;
         _startTimer(confirmedAt);
         await _startLiveTracking();
       } else {
+        await _clearActiveTimerSession(uid);
         _stopTimer();
       }
     } on app_location.OutsideGeofenceException catch (e) {
